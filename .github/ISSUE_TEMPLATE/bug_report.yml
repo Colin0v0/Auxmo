@@ -23,7 +23,7 @@ body:
     attributes:
       label: Auxmo version / Auxmo 版本
       description: Copy the version shown in the panel or diagnostic report. / 填写面板或诊断报告中的实际版本。
-      placeholder: 0.4.1 (41)
+      placeholder: 0.4.2 (42)
     validations:
       required: true
   - type: textarea

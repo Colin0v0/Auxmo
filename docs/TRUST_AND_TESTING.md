@@ -20,7 +20,7 @@ Those checks exercise state machines, synthetic PCM, protocol fixtures, UI layou
 
 **0.3.9 and later:** [the current resolver](../Sources/AuxmoCore/AppAudioRoute.swift) keeps the complete saved selection and explicitly reports `waitingForDevices` when none of its targets are active. The model suspends replay, retains an unbound continuously muted tap, and resumes only on a confirmed selected target. A newly registered app with an unavailable saved route starts a mute-only session, not a temporary speaker playback chain. Other apps explicitly using All Outputs are unaffected.
 
-Only an explicit per-app choice can expand targets or clear the restriction. Quitting Auxmo, permission revocation, unregistered audio processes, and real device timing remain separate boundaries to validate. Use version 0.4.1 for the current app identity and global safety mute. Descriptor/state tests are not a live audio-leak test.
+Only an explicit per-app choice can expand targets or clear the restriction. Quitting Auxmo, permission revocation, unregistered audio processes, and real device timing remain separate boundaries to validate. Use version 0.4.2 for the current app identity and global safety mute. Descriptor/state tests are not a live audio-leak test.
 
 ### Global safety mute
 

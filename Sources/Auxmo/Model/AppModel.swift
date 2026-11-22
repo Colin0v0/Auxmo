@@ -237,7 +237,7 @@ final class AppModel: ObservableObject {
                 guard let self, !self.isShuttingDown, !self.isShutdown else { return }
                 self.diagnosticEventLog.record(category: "lifecycle", message: "system will sleep")
                 self.headphones.suspend()
-                self.pauseManagedApplications("已在休眠前暂停应用音量；唤醒后请点重新应用。")
+                self.pauseManagedApplicationsForSleep()
             }
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification,
@@ -246,6 +246,9 @@ final class AppModel: ObservableObject {
                 guard let self, !self.isShutdown, !self.isShuttingDown else { return }
                 self.diagnosticEventLog.record(category: "lifecycle", message: "system did wake")
                 self.headphones.resume()
+                // 先读取唤醒后的真实输出，再恢复睡眠暂停的应用，避免把旧设备 UID 重新绑定回来。
+                self.refresh()
+                self.recoverApplicationsPausedForSleep()
                 self.refresh()
             }
         }
@@ -662,15 +665,36 @@ final class AppModel: ObservableObject {
 
     private func pauseManagedApplications(_ reason: String) {
         processReadRecoveries.removeAll()
-        // 进程读取、休眠等新失效撤销旧的重试授权，不能在确认后把后来发生的真实错误清掉。
+        // 进程读取失败撤销旧的重试授权，不能在确认后把后来发生的真实错误清掉。
         pendingApplicationReapplies.removeAll()
         for key in Array(mixStates.keys) where mixStates[key]?.managed == true {
             latchApplicationFailure(reason, for: key)
         }
-        // 自动生命周期处理只尝试一次；已知失败必须由用户明确重试。
-        // 但暂停不等于释放：mixing tap 必须保留，唤醒或恢复读取后再决定是否继续重放。
+        // 暂停不等于释放：mixing tap 必须保留，等待明确的错误恢复路径处理。
         for key in Array(sessions.keys) where cleanupErrors[key] == nil {
             _ = preserveMixingSession(key)
+        }
+    }
+
+    /// 睡眠是系统生命周期事件，不是应用处理失败；保留静音 tap 并单独记录可恢复状态。
+    private func pauseManagedApplicationsForSleep() {
+        processReadRecoveries.removeAll()
+        pendingApplicationReapplies.removeAll()
+        for key in Array(mixStates.keys) where mixStates[key]?.managed == true {
+            mixStates[key]?.markSystemSleepPaused()
+        }
+        for key in Array(sessions.keys) where cleanupErrors[key] == nil {
+            _ = preserveMixingSession(key)
+        }
+    }
+
+    /// 唤醒后只恢复由本次睡眠标记的应用，不清除权限、路由或会话健康检查产生的真实错误。
+    private func recoverApplicationsPausedForSleep() {
+        guard let outputUID = outputRouting.confirmed?.output.uid else { return }
+        for key in Array(mixStates.keys) {
+            guard mixStates[key]?.failureReason == .systemSleep else { continue }
+            mixStates[key]?.recoverSystemSleep(outputUID: outputUID)
+            sessionRouteWaitSince.removeValue(forKey: key)
         }
     }
 

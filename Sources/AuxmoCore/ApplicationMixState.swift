@@ -9,6 +9,8 @@ public enum ApplicationMixFailure: Equatable {
     case fineTuneRunning
     case fineTuneExited
     case outputChanged
+    /// 系统睡眠前暂停属于生命周期状态，唤醒后可以安全恢复，不应要求用户重新配置。
+    case systemSleep
     /// 只读进程观察失败单独标记，恢复时不能误清其他处理失败。
     case processRead(String)
     case other(String)
@@ -18,6 +20,7 @@ public enum ApplicationMixFailure: Equatable {
         case .fineTuneRunning: return "请先手动退出 FineTune，避免重复处理音频。"
         case .fineTuneExited: return "FineTune 已退出，音量配置尚未应用。"
         case .outputChanged: return "系统输出已改变；点重新应用后才会在新设备上处理。"
+        case .systemSleep: return "已在休眠前暂停应用音量；唤醒后正在自动恢复。"
         case .processRead(let message), .other(let message): return message
         }
     }
@@ -55,6 +58,12 @@ public struct ApplicationMixState: Equatable {
     }
     public mutating func disable() { managed = false; boundOutputUID = nil; failureReason = nil }
     public mutating func fail(_ message: String) { failureReason = .other(message) }
+    public mutating func markSystemSleepPaused() { failureReason = .systemSleep }
+    public mutating func recoverSystemSleep(outputUID: String) {
+        guard managed, failureReason == .systemSleep else { return }
+        boundOutputUID = outputUID
+        failureReason = nil
+    }
     public mutating func markProcessReadFailure(_ message: String) { failureReason = .processRead(message) }
     public mutating func recoverProcessReadFailure() {
         guard case .processRead = failureReason else { return }

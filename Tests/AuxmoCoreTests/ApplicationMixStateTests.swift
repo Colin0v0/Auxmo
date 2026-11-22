@@ -29,6 +29,19 @@ struct ApplicationMixStateTests {
         #expect(state.action(group: group, sessionObjectIDs: nil) == .start)
     }
 
+    @Test func systemSleepRecoveryRebindsToTheConfirmedOutput() throws {
+        var state = ApplicationMixState()
+        try state.setGain(0.42)
+        state.toggleMute()
+        state.enable(outputUID: "bluetooth")
+        state.markSystemSleepPaused()
+        #expect(state.failureReason == .systemSleep)
+        state.recoverSystemSleep(outputUID: "built-in")
+        #expect(state.failure == nil)
+        #expect(state.boundOutputUID == "built-in")
+        #expect(state.gain == 0.42 && state.muted)
+    }
+
     @Test func processReadRecoveryClearsOnlyTheTypedObservationFailure() throws {
         var state = ApplicationMixState()
         state.enable(outputUID: "headphone")
