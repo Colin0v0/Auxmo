@@ -6,6 +6,7 @@ struct AudioPanel: View {
     @ObservedObject var layout: PanelPresentationLayout
     @ObservedObject private var updates = AuxmoUpdateChecker.shared
     let openSettings: () -> Void
+    var openMainWindow: () -> Void = {}
     var openApplicationAudioEffects: (String, String, URL?) -> Void = { _, _, _ in }
     let panelSizeChanged: (CGSize) -> Void
     let surface: MeterSurface
@@ -53,6 +54,9 @@ struct AudioPanel: View {
                         case .headphones:
                             // 耳机页只呈现耳机功能，设备音量与麦克风入口都留在音量页。
                             HeadphoneControlsSection(group: model.headphones)
+                        case .statistics:
+                            // 统计页只读展示本机记录，不触发额外的音频控制操作。
+                            ListeningStatisticsView(statistics: model.listeningStatistics)
                         }
                     }
                     // 内容页不再叠加外层水平 padding；设备行和应用行的行内留白负责左右对称。
@@ -169,7 +173,11 @@ struct AudioPanel: View {
             Spacer()
             updateBadge
             globalSafetyMuteButton
-            // 齿轮就是设置入口，左键直接打开设置窗口；诊断与系统权限留在右键菜单。
+            // 轻量面板保留快速控制；详情按钮打开完整主窗口，统计和长期管理在那里完成。
+            trailingAction(PanelActionButton(systemName: "macwindow", title: settings.localized("打开详情"),
+                              hoverStyle: .foregroundOnly, action: openMainWindow))
+                .frame(width: PanelActionMetrics.size, height: PanelActionMetrics.size)
+            // 齿轮继续打开独立设置窗口。
             trailingAction(PanelActionButton(systemName: "gearshape", title: settings.localized("设置"),
                               hoverStyle: .foregroundOnly, action: openSettings, menu: makeOptionsMenu))
                 .frame(width: PanelActionMetrics.size, height: PanelActionMetrics.size)

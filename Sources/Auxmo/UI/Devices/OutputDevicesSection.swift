@@ -63,6 +63,7 @@ struct AudioDeviceRow<Device: AudioDeviceDescriptor>: View {
     let setMuted: (Bool) -> Void
     var selectionHint: String? = nil
     @Environment(\.appLanguage) private var language
+    @Environment(\.dashboardLayout) private var dashboardLayout
     @StateObject private var hover: PanelRowHoverState
 
     /// 产品默认从非悬停态开始；快照测试可以显式构造悬停首帧，验证完整行效果。
@@ -145,7 +146,7 @@ struct AudioDeviceRow<Device: AudioDeviceDescriptor>: View {
                     .frame(maxWidth: .infinity, alignment: .trailing).help(message)
             }
         }
-        .padding(.horizontal, PanelMetrics.horizontalInset).padding(.vertical, 6)
+        .padding(.horizontal, dashboardLayout ? 0 : PanelMetrics.horizontalInset).padding(.vertical, 6)
         .frame(height: PanelMetrics.deviceRowHeight)
         .font(PanelStyle.bodyFont)
         .panelContentHover(hover.active)

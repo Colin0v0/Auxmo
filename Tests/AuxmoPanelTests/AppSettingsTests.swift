@@ -60,7 +60,8 @@ struct AppSettingsTests {
     }
 
     @Test func headphoneControlsCanBeRemovedFromNavigation() {
-        #expect(AudioPanelPage.available(showHeadphoneControls: true) == AudioPanelPage.allCases)
+        // 统计仅在完整窗口展示，轻量面板保留设备与耳机控制。
+        #expect(AudioPanelPage.available(showHeadphoneControls: true) == [.output, .microphone, .headphones])
         #expect(AudioPanelPage.available(showHeadphoneControls: false) == [.output, .microphone])
     }
 

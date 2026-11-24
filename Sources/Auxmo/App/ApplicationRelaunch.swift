@@ -50,7 +50,12 @@ private final class RelaunchHelperProcess {
     func start() throws {
         let app = Bundle.main.bundleURL
         let helper = app.appendingPathComponent("Contents/Helpers/AuxmoUpdateHelper")
-        guard Bundle.main.bundleIdentifier == "com.colin0v0.auxmo.app",
+        #if DEBUG
+        let expectedBundleIdentifier = "com.colin0v0.auxmo.develop"
+        #else
+        let expectedBundleIdentifier = "com.colin0v0.auxmo.app"
+        #endif
+        guard Bundle.main.bundleIdentifier == expectedBundleIdentifier,
               app.pathExtension == "app",
               FileManager.default.isExecutableFile(atPath: helper.path) else {
             throw AudioFailure("重启组件不可用，Auxmo 未退出")

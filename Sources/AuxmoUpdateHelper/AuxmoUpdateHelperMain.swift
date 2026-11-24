@@ -28,8 +28,13 @@ enum AuxmoUpdateHelperMain {
     private static func relaunch(options: RelaunchOptions) throws {
         let app = URL(fileURLWithPath: options.appPath)
         let data = try Data(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
+        #if DEBUG
+        let expectedBundleIdentifier = "com.colin0v0.auxmo.develop"
+        #else
+        let expectedBundleIdentifier = "com.colin0v0.auxmo.app"
+        #endif
         guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              plist["CFBundleIdentifier"] as? String == "com.colin0v0.auxmo.app",
+              plist["CFBundleIdentifier"] as? String == expectedBundleIdentifier,
               plist["CFBundleShortVersionString"] as? String == options.version else {
             throw HelperError.invalidPayload
         }

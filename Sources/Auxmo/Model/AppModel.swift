@@ -100,9 +100,11 @@ final class AppModel: ObservableObject {
     private let safetyMute = GlobalSafetyMuteController()
     let deviceMuteConfirmations = DeviceMuteConfirmationController()
     private let metering = ApplicationMeterController()
+    /// 本机音频统计只记录已确认的活跃应用与输出设备，数据保存在用户本地。
+    let listeningStatistics = ListeningStatisticsStore()
     private var metersVisible: Bool { metering.visible }
     /// 只有当前显示麦克风页的可见面板才需要枚举输入设备；隐藏页不因全局静音轮询反复读取 HAL。
-    private var inputControlsVisibleSurfaces: Set<MeterSurface> = []
+    private(set) var inputControlsVisibleSurfaces: Set<MeterSurface> = []
     private var shouldRefreshInputs: Bool {
         InputRefreshPolicy.isNeeded(monitorsSystem: monitorsSystem,
                                     selectedSurfaces: inputControlsVisibleSurfaces,
@@ -332,9 +334,7 @@ final class AppModel: ObservableObject {
     }
 
     private var shouldRefreshApplicationStateDuringPolling: Bool {
-        metering.hasVisibleSurface
-            || !sessions.isEmpty
-            || mixStates.values.contains { $0.managed }
+        true // 统计需要持续观察活跃音频应用，即使统计页面当前没有打开。
     }
 
     private func refreshApplicationState() {
@@ -349,6 +349,17 @@ final class AppModel: ObservableObject {
             let nextApplications = observation.rows
             if applications != nextApplications { applications = nextApplications }
             updateApplicationList(from: nextApplications)
+            // 应用列表刷新后再采样，确保统计使用的是同一轮 Core Audio 观察结果。
+            if let snapshot = audio, let selected = snapshot.outputs.first(where: { $0.id == snapshot.selectedID }) {
+                // 组合输出时每个成员分别累计，统计页可以回答“哪台设备实际参与了播放”。
+                let outputs: [AudioOutput]
+                if let aggregate = outputRouting.confirmed?.aggregate {
+                    outputs = aggregate.outputs
+                } else {
+                    outputs = [selected]
+                }
+                listeningStatistics.record(at: routingNow, outputs: outputs, applications: nextApplications)
+            }
             prepareLevelSources(for: playingApplications)
             if processError != nil { processError = nil }
         } catch {

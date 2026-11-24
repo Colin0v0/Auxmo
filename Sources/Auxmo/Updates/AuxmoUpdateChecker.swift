@@ -639,6 +639,7 @@ enum AuxmoUpdateError: LocalizedError {
     case invalidSignature(String)
     case helperMissing(String)
     case readyInstallMissing
+    case developmentBuild
     case recoveryBackupExists(String)
 
     var errorDescription: String? {
@@ -680,6 +681,8 @@ enum AuxmoUpdateError: LocalizedError {
             return "更新 helper 缺失：\(path)"
         case .readyInstallMissing:
             return "暂存更新已失效，请重新下载"
+        case .developmentBuild:
+            return "开发版不安装正式版更新，请重新构建开发版"
         case .recoveryBackupExists(let path):
             return "存在待恢复的旧版本备份，已停止清理：\(path)"
         }

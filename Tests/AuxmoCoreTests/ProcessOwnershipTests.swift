@@ -29,6 +29,8 @@ struct ProcessOwnershipTests {
     }
 
     @Test func mixersAndTheirHelpersNeverBecomeAudioSources() {
+        #expect(AudioProcessRoles.isMixer(bundleID: "com.colin0v0.auxmo.develop"))
+        #expect(AudioProcessRoles.isMixer(bundleID: "com.colin0v0.auxmo.app"))
         let mixer = RunningApplicationInfo(processID: 20, bundleID: "com.finetuneapp.FineTune", name: "FineTune",
                                            bundleURL: URL(fileURLWithPath: "/Applications/FineTune.app"))
         let records = [AudioProcessRecord(objectID: 100, processID: 20, bundleID: "com.finetuneapp.FineTune", isRunningOutput: true),

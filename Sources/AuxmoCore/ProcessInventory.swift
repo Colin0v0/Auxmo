@@ -45,7 +45,8 @@ public struct ProcessInventory: Codable {
 
 public enum AudioProcessRoles {
     public static func isMixer(bundleID: String) -> Bool {
-        ["com.colin0v0.auxmo.app", "com.finetuneapp.finetune"].contains(bundleID.lowercased())
+        ["com.colin0v0.auxmo.app", "com.colin0v0.auxmo.develop",
+         "com.finetuneapp.finetune"].contains(bundleID.lowercased())
     }
 
     public static func isInternalService(bundleID: String, processName: String?) -> Bool {

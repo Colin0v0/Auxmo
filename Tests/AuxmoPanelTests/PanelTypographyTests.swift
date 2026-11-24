@@ -48,7 +48,7 @@ struct PanelTypographyTests {
     }
 
     @Test(arguments: AudioPanelPage.allCases)
-    @MainActor func selectedTabIsWhiteWhileOtherTwoKeepGrayCanvas(selection: AudioPanelPage) throws {
+    @MainActor func selectedTabIsWhiteWhileOtherTabsKeepGrayCanvas(selection: AudioPanelPage) throws {
         let width = PanelMetrics.contentWidth
         let pages = AudioPanelPage.allCases
         let renderer = ImageRenderer(content:
@@ -59,7 +59,7 @@ struct PanelTypographyTests {
         #expect(image.size == CGSize(width: PanelMetrics.contentWidth, height: 27))
         let tiff = try #require(image.tiffRepresentation)
         let bitmap = try #require(NSBitmapImageRep(data: tiff))
-        let tabWidth = (width - 8) / 3
+        let tabWidth = (width - 8) / CGFloat(pages.count)
         for (index, page) in pages.enumerated() {
             // 每个卡片左侧中线取样，避开标题，检查只有选中的一格是白色。
             let x = CGFloat(index) * (tabWidth + 4) + 16
@@ -80,7 +80,7 @@ struct PanelTypographyTests {
     }
 
     @Test func mainNavigationHasOneLevelAndKeepsAppControlsOnFirstTwoPages() {
-        #expect(AudioPanelPage.allCases.map(\.title) == ["输出", "麦克风", "耳机控制"])
+        #expect(AudioPanelPage.allCases.map(\.title) == ["输出", "麦克风", "耳机控制", "统计"])
         #expect(AudioPanelPage.output.displaysApplications)
         #expect(AudioPanelPage.microphone.displaysApplications)
         #expect(!AudioPanelPage.headphones.displaysApplications)

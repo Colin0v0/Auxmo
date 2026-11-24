@@ -13,11 +13,12 @@ struct ApplicationVolumeSection: View {
     var openApplicationAudioEffects: (String, String, URL?) -> Void = { _, _, _ in }
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.appLanguage) private var language
+    @Environment(\.dashboardLayout) private var dashboardLayout
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("APP").font(.system(size: 11, weight: .medium)).foregroundStyle(PanelStyle.secondary)
-                .padding(.leading, PanelMetrics.horizontalInset)
+                .padding(.leading, dashboardLayout ? 0 : PanelMetrics.horizontalInset)
             // 所有权限状态都由独立原生对话框处理，APP 分区不插入提示或授权按钮。
             if let reason = model.applicationAudioUnavailableReason {
                 // 系统多输出负责原始播放；不展示看似可用、实际只有单流能力的应用滑杆。
