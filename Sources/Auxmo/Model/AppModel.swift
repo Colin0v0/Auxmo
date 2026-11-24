@@ -349,16 +349,44 @@ final class AppModel: ObservableObject {
             let nextApplications = observation.rows
             if applications != nextApplications { applications = nextApplications }
             updateApplicationList(from: nextApplications)
-            // 应用列表刷新后再采样，确保统计使用的是同一轮 Core Audio 观察结果。
-            if let snapshot = audio, let selected = snapshot.outputs.first(where: { $0.id == snapshot.selectedID }) {
-                // 组合输出时每个成员分别累计，统计页可以回答“哪台设备实际参与了播放”。
-                let outputs: [AudioOutput]
-                if let aggregate = outputRouting.confirmed?.aggregate {
-                    outputs = aggregate.outputs
+            // 每个应用分别依据已运行的重放会话确定输出，不再把所有应用与设备做笛卡尔积。
+            if let snapshot = audio, !outputRouting.phase.isBusy, outputRouting.phase != .failed,
+               let selected = snapshot.outputs.first(where: { $0.id == snapshot.selectedID }) {
+                let unavailable = Set(outputRouting.unavailableMemberUIDs)
+                let onlineUIDs = Set(snapshot.outputs.filter { !$0.isAggregate }.map(\.uid))
+                let defaultOutputs: [AudioOutput]
+                if let aggregate = outputRouting.confirmed?.aggregate, aggregate.uid == selected.uid {
+                    // 组合中离线或已经消失的成员不能继续记为播放设备。
+                    defaultOutputs = aggregate.outputs.filter { onlineUIDs.contains($0.uid) && !unavailable.contains($0.uid) }
+                } else if !selected.isAggregate {
+                    defaultOutputs = [selected]
                 } else {
-                    outputs = [selected]
+                    // 未确认的第三方聚合没有可信成员，不能猜设备归属。
+                    defaultOutputs = []
                 }
-                listeningStatistics.record(at: routingNow, outputs: outputs, applications: nextApplications)
+                let activeOutputs = snapshot.outputs.filter { !$0.isAggregate && !unavailable.contains($0.uid) }
+                let observations = nextApplications.filter(\.isRunningOutput).map { app in
+                    let outputs: [AudioOutput]
+                    if let session = sessions[app.id], session.mode == .mixing {
+                        // 已暂停或尚未开始的自定义会话不能记作任何设备正在播放。
+                        if session.isActive && !session.isSuspendedForOutputChange {
+                            let actualUIDs = Set(session.playbackRoute.playbackDeviceUIDs)
+                            outputs = activeOutputs.filter { actualUIDs.contains($0.uid) }
+                        } else {
+                            outputs = []
+                        }
+                    } else {
+                        switch effectiveApplicationAudioRoute(for: app.id) {
+                        case .allOutputs: outputs = defaultOutputs
+                        case .custom, .waitingForDevices, .configurationUnavailable: outputs = []
+                        }
+                    }
+                    return ListeningPlaybackObservation(application: app, outputs: outputs)
+                }
+                listeningStatistics.record(at: routingNow, observations: observations)
+            } else {
+                // 未确认系统输出时结束本次采样，不能把等待时间算到下次恢复后的设备。
+                listeningStatistics.record(at: routingNow, observations: [])
             }
             prepareLevelSources(for: playingApplications)
             if processError != nil { processError = nil }

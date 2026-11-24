@@ -4,42 +4,82 @@ import Charts
 /// 统计页沿用控制页的浅灰底和紧凑字体，用间距区分信息层级。
 struct ListeningStatisticsView: View {
     @ObservedObject var statistics: ListeningStatisticsStore
-    @StateObject private var presentation = ListeningStatisticsPresentation()
+    @StateObject private var presentation: ListeningStatisticsPresentation
     @Environment(\.appLanguage) private var language
     private var english: Bool { language == .english }
     private func text(_ chinese: String, _ english: String) -> String { self.english ? english : chinese }
     private var displayLocale: Locale { Locale(identifier: english ? "en_US" : "zh_CN") }
     private let calendar: Calendar
     private let now: Date
+    private let showsScrollView: Bool
     private var period: ListeningStatisticsPeriod { presentation.period }
     private var selectedDate: Date? { presentation.selectedDate }
     private var compact: Bool { presentation.compact }
+    private var scope: ListeningStatisticsScope? { presentation.detail?.scope }
 
-    init(statistics: ListeningStatisticsStore, now: Date = Date(), calendar: Calendar = .current) {
+    init(statistics: ListeningStatisticsStore, now: Date = Date(), calendar: Calendar = .current,
+         showsScrollView: Bool = false) {
         self.statistics = statistics
         self.now = now
         self.calendar = calendar
+        self.showsScrollView = showsScrollView
+        _presentation = StateObject(wrappedValue: ListeningStatisticsPresentation())
     }
 
-    private var days: [Date] { period.days(endingAt: now, calendar: calendar, firstRecord: statistics.buckets.map(\.start).filter { $0 <= now }.min()) }
+    /// 完整窗口共享导航状态，使面包屑和页面始终指向同一详情。
+    init(statistics: ListeningStatisticsStore, presentation: ListeningStatisticsPresentation,
+         now: Date = Date(), calendar: Calendar = .current, showsScrollView: Bool = false) {
+        self.statistics = statistics
+        self.now = now
+        self.calendar = calendar
+        self.showsScrollView = showsScrollView
+        _presentation = StateObject(wrappedValue: presentation)
+    }
+
+    private var days: [Date] { period.days(endingAt: now, calendar: calendar, firstRecord: statistics.firstRecordedDate(scope: scope)) }
     private var since: Date { days[0] }
-    private var total: Double { statistics.totalSeconds(since: since) }
-    private var activeDays: Int { statistics.activeDayCount(since: since, calendar: calendar) }
-    private var devices: [ListeningDeviceSummary] { statistics.deviceSummaries(since: since) }
-    private var applications: [ListeningApplicationSummary] { statistics.applicationSummaries(since: since) }
+    private var total: Double { statistics.totalSeconds(since: since, scope: scope) }
+    private var activeDays: Int { statistics.dailyTotals(since: since, calendar: calendar, scope: scope).count }
+    private var devices: [ListeningDeviceSummary] { statistics.deviceSummaries(since: since, scope: scope) }
+    private var applications: [ListeningApplicationSummary] { statistics.applicationSummaries(since: since, scope: scope) }
     private var dailyPoints: [ListeningDayPoint] {
-        let totals = statistics.dailyTotals(since: since, calendar: calendar)
+        let totals = statistics.dailyTotals(since: since, calendar: calendar, scope: scope)
         return days.map { ListeningDayPoint(date: $0, seconds: totals[$0, default: 0]) }
     }
 
     var body: some View {
+        Group {
+            if showsScrollView {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        pageBody
+                            .id("statistics-top")
+                            .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 28)
+                            .background(DashboardScrollbars())
+                    }
+                    .onChange(of: presentation.detail?.scope) { _, _ in
+                        // 从排行进入详情或返回时，总是从标题开始阅读。
+                        proxy.scrollTo("statistics-top", anchor: .top)
+                    }
+                }
+            } else {
+                pageBody
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: showsScrollView ? .infinity : nil, alignment: .topLeading)
+        .environment(\.calendar, calendar)
+    }
+
+    private var pageBody: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let detail = presentation.detail {
+                detailHeader(detail).padding(.bottom, 20)
+            }
             // 日期与统计内容一起滚动，不固定在窗口顶部。
             periodPicker
             statisticsContent
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .environment(\.calendar, calendar)
         .onGeometryChange(for: Bool.self) { $0.size.width < 560 } action: { presentation.compact = $0 }
     }
 
@@ -52,8 +92,13 @@ struct ListeningStatisticsView: View {
                 .padding(.bottom, 22)
             sectionDivider
 
-            // 完整窗口并排比较设备和应用，菜单栏的窄面板则按阅读顺序纵向排列。
-            if compact {
+            // 详情展示另一维度的关联排行；总览仍并排展示设备和应用。
+            if let detail = presentation.detail {
+                switch detail.scope {
+                case .device: applicationRanking.padding(.vertical, 20)
+                case .application: deviceRanking.padding(.vertical, 20)
+                }
+            } else if compact {
                 deviceRanking.padding(.vertical, 20)
                 sectionDivider
                 applicationRanking.padding(.vertical, 20)
@@ -68,6 +113,24 @@ struct ListeningStatisticsView: View {
             timeHeatmap.padding(.vertical, 20)
             sectionDivider
             sessionStatistics.padding(.top, 14)
+        }
+    }
+
+    private func detailHeader(_ detail: ListeningStatisticsDetail) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                presentation.returnToOverview()
+            } label: {
+                Label(text("返回统计", "Back to Statistics"), systemImage: "chevron.left")
+                    .font(PanelStyle.bodyFont)
+                    .foregroundStyle(presentation.hoveredBack ? PanelStyle.ink : PanelStyle.secondary)
+            }
+            .buttonStyle(.plain)
+            .onHover { presentation.hoveredBack = $0 }
+            HStack(spacing: 10) {
+                rankingIcon(detail.icon).frame(width: 24, height: 24)
+                Text(detail.title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+            }
         }
     }
 
@@ -115,7 +178,7 @@ struct ListeningStatisticsView: View {
     private var comparisonText: String {
         guard period != .all else { return text("全部记录", "All records") }
         let previousStart = calendar.date(byAdding: .day, value: -days.count, to: since)!
-        let previous = statistics.totalSeconds(since: previousStart, until: since)
+        let previous = statistics.totalSeconds(since: previousStart, until: since, scope: scope)
         guard previous > 0 else { return text("上一周期暂无记录", "No previous-period data") }
         let difference = total - previous
         if abs(difference) < 60 { return text("与上一周期基本持平", "Similar to previous period") }
@@ -273,22 +336,35 @@ struct ListeningStatisticsView: View {
     private func rankingRow(_ row: ListeningRankingItem) -> some View {
         let denominator = row.icon.isDevice ? devices.reduce(0) { $0 + $1.seconds } : applications.reduce(0) { $0 + $1.seconds }
         let share = denominator > 0 ? row.seconds / denominator : 0
-        return HStack(alignment: .top, spacing: 10) {
-            rankingIcon(row.icon)
+        let selectedScope: ListeningStatisticsScope = row.icon.isDevice ? .device(row.id) : .application(row.id)
+        let hovered = presentation.hoveredRanking == selectedScope
+        return Button {
+            presentation.detail = ListeningStatisticsDetail(scope: selectedScope, title: row.title, icon: row.icon)
+            presentation.selectedDate = nil
+            presentation.hoveredRanking = nil
+        } label: {
+        HStack(alignment: .top, spacing: 10) {
+            rankingIcon(row.icon, highlighted: hovered)
                 .frame(width: 18, height: 18)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
                     Text(row.title)
                         .font(PanelStyle.bodyFont)
+                        .foregroundStyle(PanelStyle.ink)
                         .lineLimit(1)
                         .help(row.title)
                     Spacer(minLength: 0)
                     Text(durationText(row.seconds))
                         .font(PanelStyle.captionFont)
-                        .foregroundStyle(PanelStyle.secondary)
+                        .foregroundStyle(hovered ? PanelStyle.ink : PanelStyle.secondary)
                         .monospacedDigit()
                         .fixedSize()
+                    // 轻量提示这一行可进入设备或应用详情。
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(hovered ? PanelStyle.ink : PanelStyle.secondary.opacity(0.7))
+                        .accessibilityHidden(true)
                 }
                 // 细线只表达所选范围内的时长占比，不给整行铺装饰底板。
                 GeometryReader { proxy in
@@ -301,18 +377,26 @@ struct ListeningStatisticsView: View {
             }
         }
         .padding(.vertical, 9)
+        .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // 每行各自响应悬停，鼠标移出后恢复默认颜色，不改变布局。
+        .onHover { hovering in
+            if hovering { presentation.hoveredRanking = selectedScope }
+            else if presentation.hoveredRanking == selectedScope { presentation.hoveredRanking = nil }
+        }
         .help(text("\(row.title) · \(durationText(row.seconds)) · 排行总时长的 \(Int((share * 100).rounded()))%", "\(row.title) · \(durationText(row.seconds)) · \(Int((share * 100).rounded()))% of listed time"))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(text("\(row.title)，\(durationText(row.seconds))，占排行总时长 \(Int((share * 100).rounded()))%", "\(row.title), \(durationText(row.seconds)), \(Int((share * 100).rounded()))% of listed time"))
     }
 
     @ViewBuilder
-    private func rankingIcon(_ icon: ListeningRankingIcon) -> some View {
+    private func rankingIcon(_ icon: ListeningRankingIcon, highlighted: Bool = false) -> some View {
         switch icon {
         case .device(let symbol):
             Image(systemName: symbol)
                 .font(.system(size: 14))
-                .foregroundStyle(PanelStyle.secondary)
+                .foregroundStyle(highlighted ? PanelStyle.ink : PanelStyle.secondary)
         case .application(let identity):
             // 保留应用原始彩色图标；无对应应用包时只保留对齐位置。
             if let image = ApplicationIconCache.icon(forApplicationIdentity: identity) {
@@ -324,7 +408,7 @@ struct ListeningStatisticsView: View {
     }
 
     private var timeHeatmap: some View {
-        let values = statistics.heatmap(since: since, calendar: calendar)
+        let values = statistics.heatmap(since: since, calendar: calendar, scope: scope)
         let peak = values.flatMap { $0 }.max()!
         let weekdays = english ? ["M", "T", "W", "T", "F", "S", "S"] : ["一", "二", "三", "四", "五", "六", "日"]
         let weekdayNames = english ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -415,7 +499,7 @@ struct ListeningStatisticsView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .help(text("会话根据音频活跃采样及时间间隔估算，历史记录精度为 15 分钟。", "Sessions are estimated from audio activity; historical records use 15-minute intervals."))
 
-            let durations = statistics.sessionDurations(since: since)
+            let durations = statistics.sessionDurations(since: since, scope: scope)
             VStack(spacing: 12) {
                 sessionRow(text("使用次数", "Sessions"), value: english ? "\(durations.count)" : "\(durations.count) 次")
                 sessionRow(text("平均每次", "Average Session"), value: durationText(
@@ -434,7 +518,7 @@ struct ListeningStatisticsView: View {
     }
 
     private var busiestHour: Int? {
-        let heat = statistics.heatmap(since: since, calendar: calendar)
+        let heat = statistics.heatmap(since: since, calendar: calendar, scope: scope)
         let totals = (0..<24).map { hour in heat.reduce(0) { $0 + $1[hour] } }
         guard let hour = totals.indices.max(by: { totals[$0] < totals[$1] }), totals[hour] > 0 else { return nil }
         return hour
@@ -517,6 +601,19 @@ final class ListeningStatisticsPresentation: ObservableObject {
     @Published var allDevices = false
     @Published var allApplications = false
     @Published var hoveredHeatmapCell: HeatmapCell?
+    @Published var hoveredBack = false
+    @Published var hoveredRanking: ListeningStatisticsScope?
+    @Published fileprivate var detail: ListeningStatisticsDetail?
+
+    var detailTitle: String? { detail?.title }
+
+    /// 返回总览同时清理详情的选择和悬停状态。
+    func returnToOverview() {
+        detail = nil
+        selectedDate = nil
+        hoveredBack = false
+        hoveredRanking = nil
+    }
 
     /// 切换范围时同步清除旧图表选中日和列表展开状态，避免显示上个范围的明细。
     func selectPeriod(_ value: ListeningStatisticsPeriod) {
@@ -539,6 +636,12 @@ private struct ListeningRankingItem: Identifiable {
     let id: String
     let title: String
     let seconds: Double
+    let icon: ListeningRankingIcon
+}
+
+private struct ListeningStatisticsDetail {
+    let scope: ListeningStatisticsScope
+    let title: String
     let icon: ListeningRankingIcon
 }
 
