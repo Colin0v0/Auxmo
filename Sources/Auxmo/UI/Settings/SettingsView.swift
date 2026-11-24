@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import AuxmoCore
 import ServiceManagement
+import UniformTypeIdentifiers
 
 /// 登录项状态来自系统服务，错误只在当前设置窗口展示。
 @MainActor
@@ -33,6 +34,7 @@ struct SettingsView: View {
             }
             generalCard
             featuresCard
+            StatisticsDataSettings(statistics: model.listeningStatistics, language: settings.resolvedLanguage)
             diagnosticsCard
             // 检查更新始终位于设置内容最后，独立窗口和完整窗口保持一致。
             footer
@@ -298,6 +300,66 @@ struct SettingsView: View {
         case .light: return settings.localized("浅色")
         case .dark: return settings.localized("深色")
         }
+    }
+}
+
+/// 统计数据仅在用户主动选择目标位置时导出；删除前明确确认。
+private struct StatisticsDataSettings: View {
+    @ObservedObject var statistics: ListeningStatisticsStore
+    let language: AppLanguage
+    private var english: Bool { language == .english }
+    private func text(_ zh: String, _ en: String) -> String { english ? en : zh }
+
+    var body: some View {
+        SettingsCard(title: text("统计数据", "Statistics Data")) {
+            SettingsRow(title: text("记录起始日期", "First Recorded")) {
+                Text(firstDateText).font(PanelStyle.bodyFont).foregroundStyle(PanelStyle.secondary)
+            }
+            PanelDivider()
+            SettingsRow(title: text("导出统计数据", "Export Statistics")) {
+                Button(text("导出…", "Export…")) { export() }
+                    .buttonStyle(.plain).foregroundStyle(PanelStyle.secondary)
+            }
+            PanelDivider()
+            SettingsRow(title: text("清除统计数据", "Clear Statistics")) {
+                Button(text("清除…", "Clear…")) { confirmClear() }
+                    .buttonStyle(.plain).foregroundStyle(PanelStyle.secondary)
+                    .disabled(statistics.firstRecordedDate() == nil)
+            }
+        }
+    }
+
+    private var firstDateText: String {
+        guard let first = statistics.firstRecordedDate() else { return text("暂无记录", "No records") }
+        let locale = Locale(identifier: english ? "en_US" : "zh_CN")
+        return first.formatted(Date.FormatStyle().year().month().day().locale(locale))
+    }
+
+    private func export() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "Auxmo-Statistics.json"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try statistics.exportData().write(to: url, options: .atomic) }
+        catch { showError(text("无法导出统计数据", "Could Not Export Statistics"), error: error) }
+    }
+
+    private func confirmClear() {
+        let alert = NSAlert()
+        alert.messageText = text("清除所有统计数据？", "Clear All Statistics?")
+        alert.informativeText = text("此操作会删除本机记录的所有聆听统计，无法撤销。", "This permanently removes all local listening statistics.")
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: text("清除", "Clear"))
+        alert.addButton(withTitle: text("取消", "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        do { try statistics.clearAll() }
+        catch { showError(text("无法清除统计数据", "Could Not Clear Statistics"), error: error) }
+    }
+
+    private func showError(_ title: String, error: Error) {
+        let alert = NSAlert(error: error)
+        alert.messageText = title
+        alert.runModal()
     }
 }
 

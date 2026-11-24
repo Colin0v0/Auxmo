@@ -39,6 +39,8 @@ struct MainDashboardView: View {
     @ObservedObject private var updates = AuxmoUpdateChecker.shared
     @StateObject private var sidebarHover = DashboardHover()
     @StateObject private var sidebarToggleHover = PanelRowHoverState()
+    @StateObject private var statisticsPresentation = ListeningStatisticsPresentation()
+    @StateObject private var statisticsBreadcrumbHover = PanelRowHoverState()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -172,14 +174,21 @@ struct MainDashboardView: View {
         VStack(alignment: .leading, spacing: 0) {
             navigationBar
 
-            ScrollView {
-                pageContent
-                    .environment(\.dashboardLayout, true)
-                    .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 28)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(DashboardScrollbars())
+            if selection.page == .statistics {
+                // 详情跳转后由统计页滚动到顶部；日期仍和内容一起滚动。
+                ListeningStatisticsView(statistics: model.listeningStatistics, presentation: statisticsPresentation,
+                                        showsScrollView: true)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    pageContent
+                        .environment(\.dashboardLayout, true)
+                        .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 28)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(DashboardScrollbars())
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -214,9 +223,18 @@ struct MainDashboardView: View {
             Text(settings.localized(selection.page == .settings ? "设置" : selection.page == .statistics ? "观测" : "使用"))
                 .foregroundStyle(PanelStyle.secondary)
             Text("/").foregroundStyle(PanelStyle.secondary.opacity(0.55))
-            Text(settings.localized(selection.page == .settings ? "常规" : selection.page.title))
-                .fontWeight(.semibold)
-                .lineLimit(1)
+            if selection.page == .statistics, let title = statisticsPresentation.detailTitle {
+                Button(settings.localized("统计")) { statisticsPresentation.returnToOverview() }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(statisticsBreadcrumbHover.active ? PanelStyle.ink : PanelStyle.secondary)
+                    .onHover { statisticsBreadcrumbHover.active = $0 }
+                Text("/").foregroundStyle(PanelStyle.secondary.opacity(0.55))
+                Text(title).fontWeight(.semibold).lineLimit(1)
+            } else {
+                Text(settings.localized(selection.page == .settings ? "常规" : selection.page.title))
+                    .fontWeight(.semibold)
+                    .lineLimit(1)
+            }
             Spacer(minLength: 16)
             // 有新版本才显示紫色更新入口；普通检查放在设置页底部。
             if updates.availableUpdate != nil {
