@@ -28,6 +28,7 @@ struct ApplicationMixerRow: View {
     @Environment(\.appLanguage) private var language
     @StateObject private var hover: PanelRowHoverState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dashboardLayout) private var dashboardLayout
 
     /// 真实应用行默认静止；视觉快照可显式打开首帧悬停，不依赖合成鼠标事件。
     init(app: ApplicationAudioRow, state: ApplicationMixState,
@@ -73,35 +74,22 @@ struct ApplicationMixerRow: View {
 
     var body: some View {
         // 全部控件保持一排，真实错误放入同行标记、悬停和菜单，不再额外撑出第二行。
-        HStack(spacing: 8) {
-            if metersVisible {
-                LiveApplicationLevelMeter(source: levelSource, applicationName: app.label)
+        HStack(spacing: dashboardLayout ? 10 : 8) {
+            if dashboardLayout {
+                // 与设备行共用 176pt 的首列，图标、静音和滑杆各自对齐。
+                HStack(spacing: 8) {
+                    applicationIcon.frame(width: 28, height: 28)
+                    Text(app.label).lineLimit(1).help(app.bundleID)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    levelMeter
+                }
+                .frame(width: PanelMetrics.deviceSelectionWidth)
             } else {
-                // 非当前分区不订阅 30Hz 电平；切回该页时再恢复实时观察。
-                ApplicationLevelMeter(level: nil, applicationName: app.label)
+                levelMeter
+                applicationIcon
+                Text(app.label).lineLimit(1).help(app.bundleID)
+                    .frame(width: applicationNameWidth, alignment: .leading)
             }
-            Group {
-                if let url = app.applicationURL {
-                    Image(nsImage: ApplicationIconCache.icon(for: url)).resizable()
-                } else {
-                    Image(systemName: "waveform").foregroundStyle(PanelStyle.secondary)
-                }
-            }
-            .frame(width: 22, height: 22)
-            .overlay(alignment: .bottomTrailing) {
-                if let error = state.failure {
-                    Image(systemName: "exclamationmark.circle.fill")
-                        .font(.system(size: 10)).foregroundStyle(.red)
-                        .background(PanelStyle.canvas, in: Circle())
-                        .help(L10n.text(error, language: language))
-                        .accessibilityLabel(L10n.text(error, language: language))
-                } else if state.managed && awaitingStream && !routePaused {
-                    Circle().fill(.orange).frame(width: 6, height: 6)
-                        .help(L10n.text("等待音频流", language: language))
-                }
-            }
-            Text(app.label).lineLimit(1).help(app.bundleID)
-                .frame(width: applicationNameWidth, alignment: .leading)
             // 应用静音、设备静音和顶栏全局静音共用描边图标与红色，避免同一种状态出现三种外观。
             PanelActionButton(systemName: effectiveMuted ? "speaker.slash" : "speaker.wave.2",
                               title: effectiveMuted
@@ -128,7 +116,7 @@ struct ApplicationMixerRow: View {
                 routingButton
             }
         }
-        .padding(.horizontal, PanelMetrics.horizontalInset).padding(.vertical, 9)
+        .padding(.horizontal, dashboardLayout ? 0 : PanelMetrics.horizontalInset).padding(.vertical, 9)
         .panelContentHover(hover.active)
         .onHover { hover.active = $0 }
         // 应用行仅改变读数颜色，不再绘制包住整行的灰框。
@@ -136,6 +124,38 @@ struct ApplicationMixerRow: View {
         .help(state.failure.map { L10n.text($0, language: language) }
               ?? L10n.format("%@；右键打开应用操作", language: language, arguments: [status]))
         .contextMenu { options }
+    }
+
+    @ViewBuilder private var levelMeter: some View {
+        if metersVisible {
+            LiveApplicationLevelMeter(source: levelSource, applicationName: app.label)
+        } else {
+            // 非当前分区不订阅 30Hz 电平；切回该页时再恢复实时观察。
+            ApplicationLevelMeter(level: nil, applicationName: app.label)
+        }
+    }
+
+    private var applicationIcon: some View {
+        Group {
+            if let url = app.applicationURL {
+                Image(nsImage: ApplicationIconCache.icon(for: url)).resizable()
+            } else {
+                Image(systemName: "waveform").foregroundStyle(PanelStyle.secondary)
+            }
+        }
+        .frame(width: 22, height: 22)
+        .overlay(alignment: .bottomTrailing) {
+            if let error = state.failure {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 10)).foregroundStyle(.red)
+                    .background(PanelStyle.canvas, in: Circle())
+                    .help(L10n.text(error, language: language))
+                    .accessibilityLabel(L10n.text(error, language: language))
+            } else if state.managed && awaitingStream && !routePaused {
+                Circle().fill(.orange).frame(width: 6, height: 6)
+                    .help(L10n.text("等待音频流", language: language))
+            }
+        }
     }
 
     private var trailingControlCount: Int {
@@ -298,23 +318,5 @@ struct ApplicationMixerRow: View {
             menu.addItem(unavailable)
         }
         return menu
-    }
-}
-
-/// 应用图标在多次轮询和页面切换间复用，避免每帧都向 Launch Services 查询。
-@MainActor
-private enum ApplicationIconCache {
-    private static let cache: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 128
-        return cache
-    }()
-
-    static func icon(for url: URL) -> NSImage {
-        let key = url.path as NSString
-        if let cached = cache.object(forKey: key) { return cached }
-        let icon = NSWorkspace.shared.icon(forFile: url.path)
-        cache.setObject(icon, forKey: key)
-        return icon
     }
 }

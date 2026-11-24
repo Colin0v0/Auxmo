@@ -74,14 +74,34 @@ final class AuxmoDelegate: NSObject, NSApplicationDelegate {
             let model = AppModel.shared
             if !result.errors.isEmpty { model.operationError = result.errors.joined(separator: "；") }
             self.model = model
+            LowBatteryReminder.shared.start(group: model.headphones)
             self.statusPanel = StatusPanelController(model: model,
                 requestAudioPermission: { try await audio.request() }, onAudioPermissionGranted: { [weak self] in
                 self?.restartAfterAudioPermissionGrant()
             }, onAudioPermissionDenied: { [weak self] in
                 self?.presentAudioPermissionDeniedAndQuit()
             })
+            // 启动时保持菜单栏模式；只有打开详情窗口时才显示 Dock 图标。
+            NSApp.setActivationPolicy(.prohibited)
             AuxmoUpdateChecker.shared.startAutomaticChecking()
+            #if DEBUG
+            // 本地界面验收可显式打开详情页，复用正常的窗口创建和 Dock 显示流程。
+            if CommandLine.arguments.contains("--show-dashboard") {
+                self.statusPanel?.showMainWindowForDock()
+            }
+            #endif
         }
+    }
+
+    /// Dock 图标被点击时复用完整主窗口，而不是只把应用置前却没有可见内容。
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // 从系统设置返回后复查通知权限。
+        LowBatteryReminder.shared.recheckPermission()
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        statusPanel?.showMainWindowForDock()
+        return true
     }
 
     private func presentAudioPermissionDeniedAndQuit() {

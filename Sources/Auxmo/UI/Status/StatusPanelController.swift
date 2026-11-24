@@ -3,6 +3,47 @@ import Combine
 import SwiftUI
 import AuxmoCore
 
+
+/// 主窗口的最小尺寸由窗口层强制执行，避免 SwiftUI 宿主或系统恢复旧 frame 时绕过 minSize。
+final class AuxmoDashboardWindow: NSWindow {
+    static let minimumContentSize = NSSize(width: 900, height: 700)
+    /// 初次打开使用最小尺寸，用户仍可自行调整窗口大小。
+    static let initialContentSize = minimumContentSize
+    static let maximumContentWidth: CGFloat = 1080
+
+    /// 使用系统红黄绿按钮，只调整它们在一体式导航栏中的位置。
+    func layoutWindowControls() {
+        guard !styleMask.contains(.fullScreen), let contentView else { return }
+        for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+            guard let button = standardWindowButton(type), let parent = button.superview else { continue }
+            let center = parent.convert(NSPoint(x: 17 + CGFloat(index) * 20,
+                                                 y: contentView.isFlipped ? contentView.bounds.minY + 26 : contentView.bounds.maxY - 26), from: contentView)
+            button.setFrameOrigin(NSPoint(x: center.x - button.frame.width / 2,
+                                          y: center.y - button.frame.height / 2))
+        }
+    }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        var constrained = super.constrainFrameRect(frameRect, to: screen)
+        let minimumFrameSize = self.frameRect(forContentRect: NSRect(origin: .zero, size: Self.minimumContentSize)).size
+        let oldSize = constrained.size
+        constrained.size.width = max(constrained.size.width, minimumFrameSize.width)
+        constrained.size.height = max(constrained.size.height, minimumFrameSize.height)
+        // 保持窗口左上角不跳动：增大尺寸时只向右下方展开。
+        constrained.origin.y -= constrained.size.height - oldSize.height
+        return constrained
+    }
+}
+
+/// SwiftUI 完成布局后对齐系统窗口按钮，缩放与侧边栏切换都使用同一处布局。
+@MainActor
+final class DashboardHostingController: NSHostingController<MainDashboardView> {
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        (view.window as? AuxmoDashboardWindow)?.layoutWindowControls()
+    }
+}
+
 /// 设置内容高度变化时同步原生窗口，避免语言、错误提示或分组内容被固定高度裁切。
 @MainActor
 private final class SettingsHostingController: NSHostingController<SettingsView> {
@@ -31,6 +72,8 @@ final class StatusPanelController: NSObject {
     private let statusItem: NSStatusItem
     private let model: AppModel
     private var settingsWindow: SettingsWindow?
+    private var mainWindow: NSWindow?
+    private let dashboardSelection = DashboardSelection()
     private lazy var applicationAudioEffectWindowController = ApplicationAudioEffectWindowController(model: model)
     private var audioPermissionMonitor: AudioCapturePermissionMonitor?
     private let popupLayout = PanelPresentationLayout()
@@ -71,6 +114,8 @@ final class StatusPanelController: NSObject {
         let host = NSHostingController(rootView: StatusPopupSurface { [weak self] in
             AudioPanel(model: model, layout: layout, openSettings: { [weak self] in
                 self?.showSettings()
+            }, openMainWindow: { [weak self] in
+                self?.showMainWindow()
             }, openApplicationAudioEffects: { [weak self] applicationID, appName, applicationURL in
                 self?.showApplicationAudioEffects(applicationID: applicationID,
                                                   appName: appName,
@@ -152,35 +197,56 @@ final class StatusPanelController: NSObject {
     }
 
     /// 齿轮和右键菜单都进入同一个真实设置窗口，不再复制主面板的设备控制内容。
-    private func showSettings() {
+    /// 菜单栏入口打开完整主窗口；统计、设备和应用控制都在同一页内浏览。
+    func showMainWindowForDock() {
+        showMainWindow()
+    }
+
+    private func showMainWindow() {
         hidePopup()
-        if settingsWindow == nil {
-            let host = SettingsHostingController(rootView:
-                SettingsView(model: model, settings: AppSettings.shared))
-            host.sizingOptions = [.preferredContentSize]
-            let size = SettingsMetrics.contentSize(preferred: host.preferredContentSize)
-            let window = SettingsWindow(contentRect: NSRect(origin: .zero, size: size),
-                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-            window.delegate = self
-            window.title = settingsWindowTitle
+        // 主窗口打开时显示 Dock 图标；关闭窗口后回到纯菜单栏运行状态。
+        NSApp.setActivationPolicy(.regular)
+        if mainWindow == nil {
+            let host = DashboardHostingController(rootView: MainDashboardView(
+                model: model,
+                openApplicationAudioEffects: { [weak self] applicationID, appName, applicationURL in
+                    self?.showApplicationAudioEffects(applicationID: applicationID, appName: appName, applicationURL: applicationURL)
+                },
+                selection: dashboardSelection))
+            // 主窗口尺寸完全由 AppKit 管理；SwiftUI 不再用自然内容尺寸反向改写窗口。
+            host.sizingOptions = []
+            let window = AuxmoDashboardWindow(contentRect: NSRect(origin: .zero, size: AuxmoDashboardWindow.initialContentSize),
+                                  styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                                  backing: .buffered, defer: false)
+            window.title = "Auxmo"
+            window.styleMask.insert(.fullSizeContentView)
+            window.titleVisibility = .hidden
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+            window.isMovableByWindowBackground = true
             window.isReleasedWhenClosed = false
             window.contentViewController = host
-            window.setContentSize(size)
-            host.contentSizeDidChange = { [weak window] contentSize in
-                guard let window else { return }
-                window.setFrame(SettingsMetrics.resizedWindowFrame(for: window, contentSize: contentSize),
-                                display: true)
-            }
-            host.view.layoutSubtreeIfNeeded()
-            host.reportContentSize()
+            window.setContentSize(AuxmoDashboardWindow.initialContentSize)
+            window.contentMaxSize = NSSize(width: AuxmoDashboardWindow.maximumContentWidth,
+                                           height: .greatestFiniteMagnitude)
+            // 最小尺寸必须同时约束内容区和外框，避免不同缩放路径绕过 SwiftUI 的页面边界。
+            window.contentMinSize = AuxmoDashboardWindow.minimumContentSize
+            window.minSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: AuxmoDashboardWindow.minimumContentSize)).size
             window.center()
-            settingsWindow = window
+            window.delegate = self
+            mainWindow = window
         }
-        updateSettingsWindowTitle()
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        // 已经创建过的窗口也重新施加约束，避免用户从旧版本继承过小的窗口尺寸。
+        mainWindow?.contentMinSize = AuxmoDashboardWindow.minimumContentSize
+        mainWindow?.minSize = mainWindow?.frameRect(forContentRect: NSRect(origin: .zero, size: AuxmoDashboardWindow.minimumContentSize)).size ?? .zero
+        mainWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        // 激活后清除系统自动选中的首个控件，仍允许用户主动使用 Tab 导航。
-        settingsWindow?.makeFirstResponder(nil)
+    }
+
+    private func showSettings() {
+        // 设置和主内容共享同一个窗口；轻量面板的齿轮直接定位到设置页。
+        dashboardSelection.page = .settings
+        showMainWindow()
     }
 
     /// 应用音效不再使用主面板 Popover；独立窗口由同一个控制器强持有，避免播放列表刷新时窗口被释放。
@@ -361,6 +427,15 @@ final class StatusPanelController: NSObject {
 }
 
 extension StatusPanelController: NSWindowDelegate {
+    /// 拖拽边框时强制返回最小外框尺寸，覆盖 SwiftUI 宿主和旧窗口 frame 的影响。
+    func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
+        guard sender === mainWindow else { return frameSize }
+        let minimum = sender.frameRect(forContentRect: NSRect(origin: .zero,
+                                                               size: AuxmoDashboardWindow.minimumContentSize)).size
+        return NSSize(width: min(max(frameSize.width, minimum.width), AuxmoDashboardWindow.maximumContentWidth),
+                      height: max(frameSize.height, minimum.height))
+    }
+
     func windowDidChangeOcclusionState(_ notification: Notification) {
         if notification.object as? NSWindow === popup, popupPresented,
            !popup.isVisible || NSApp.isHidden { hidePopup() }
@@ -370,6 +445,11 @@ extension StatusPanelController: NSWindowDelegate {
         if notification.object as? NSWindow === popup { hidePopup(); return }
         if notification.object as? NSWindow === settingsWindow {
             AuxmoUpdateChecker.shared.resetSettingsPresentation()
+        }
+        if notification.object as? NSWindow === mainWindow {
+            mainWindow?.orderOut(nil)
+            // 关闭详情窗口不退出 Auxmo；菜单栏入口继续可用，同时移除 Dock 图标。
+            NSApp.setActivationPolicy(.prohibited)
         }
     }
 }

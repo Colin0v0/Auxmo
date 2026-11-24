@@ -9,13 +9,16 @@ case "$CONFIGURATION" in
 esac
 ./Scripts/archive-legacy-build.sh
 OUTPUT_DIR="${AUXMO_BUILD_OUTPUT_ROOT:-dist/build}/$CONFIGURATION"
-./Scripts/assert-app-idle.sh "$OUTPUT_DIR/Auxmo.app"
+APP_NAME="Auxmo"
+if [[ "$CONFIGURATION" == "debug" ]]; then APP_NAME="Auxmo (develop)"; fi
+APP_BUNDLE_NAME="$APP_NAME.app"
+./Scripts/assert-app-idle.sh "$OUTPUT_DIR/$APP_BUNDLE_NAME"
 swift build --configuration "$CONFIGURATION"
 BIN_DIR="$(swift build --configuration "$CONFIGURATION" --show-bin-path)"
 mkdir -p "$OUTPUT_DIR"
 # 先在独立目录构建并验证完整包，不能往上次的包里增量拷贝而夹带旧文件。
 STAGING="$(mktemp -d "$OUTPUT_DIR/.auxmo-build.XXXXXX")"
-APP="$STAGING/Auxmo.app"
+APP="$STAGING/$APP_BUNDLE_NAME"
 cleanup() {
     local status=$?
     if [[ -e "$STAGING/previous.app" ]]; then
@@ -30,6 +33,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/Licenses" "$APP/Contents
 cp "$BIN_DIR/Auxmo" "$APP/Contents/MacOS/Auxmo"
 cp "$BIN_DIR/AuxmoUpdateHelper" "$APP/Contents/Helpers/AuxmoUpdateHelper"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# 开发包明确标记为 Auxmo (develop)，正式包保持 Auxmo，避免 Dock 中出现多个同名图标。
+/usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName $APP_NAME" "$APP/Contents/Info.plist"
+if [[ "$CONFIGURATION" == "debug" ]]; then
+    # 开发版必须有独立身份，避免 Launch Services、偏好设置和系统授权与正式版混淆。
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.colin0v0.auxmo.develop" "$APP/Contents/Info.plist"
+fi
 # 更新仓库地址从当前 Git remote 注入最终应用包，避免源码或资源文件写死账号名。
 REMOTE_URL="$(git remote get-url origin)"
 UPDATE_REPOSITORY="$(printf '%s' "$REMOTE_URL" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
@@ -58,7 +68,7 @@ codesign --force --sign - "$APP/Contents/Helpers/AuxmoUpdateHelper"
 codesign --force --sign - "$APP"
 codesign --verify --strict "$APP"
 /usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP/Contents/Info.plist"
-DESTINATION="$OUTPUT_DIR/Auxmo.app"
+DESTINATION="$OUTPUT_DIR/$APP_BUNDLE_NAME"
 # 编译期间用户可能打开了上次的包；替换前再次确认，不能移动运行中的 bundle。
 ./Scripts/assert-app-idle.sh "$DESTINATION"
 if [[ -e "$DESTINATION" ]]; then mv "$DESTINATION" "$STAGING/previous.app"; fi

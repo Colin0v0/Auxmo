@@ -14,15 +14,18 @@ private final class LoginItemState: ObservableObject {
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
+    /// 嵌入主窗口时复用设置内容，不再生成第二个标题和固定宽度窗口。
+    var embedded = false
     @ObservedObject private var updates = AuxmoUpdateChecker.shared
+    @ObservedObject private var batteryReminder = LowBatteryReminder.shared
     @StateObject private var loginItem = LoginItemState()
     @StateObject private var updateCheckHover = PanelRowHoverState()
-    @StateObject private var repositoryLinkHover = PanelRowHoverState()
+    @StateObject private var projectLinkHover = PanelRowHoverState()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            header
+            if !embedded { header }
             if !settings.readErrors.isEmpty {
                 Text(settings.localized("设置读取失败，请重新选择"))
                     .font(PanelStyle.captionFont).foregroundStyle(PanelStyle.secondary)
@@ -31,10 +34,12 @@ struct SettingsView: View {
             generalCard
             featuresCard
             diagnosticsCard
+            // 检查更新始终位于设置内容最后，独立窗口和完整窗口保持一致。
             footer
         }
-        .padding(SettingsMetrics.horizontalInset)
-        .frame(width: SettingsMetrics.width, alignment: .topLeading)
+        .padding(embedded ? 0 : SettingsMetrics.horizontalInset)
+        .frame(maxWidth: embedded ? .infinity : SettingsMetrics.width,
+               alignment: .topLeading)
         .background(PanelStyle.canvas)
         .foregroundStyle(PanelStyle.ink)
         .preferredColorScheme(settings.appearance?.colorScheme)
@@ -45,6 +50,15 @@ struct SettingsView: View {
             if phase == .active {
                 loginItem.enabled = SMAppService.mainApp.status == .enabled
             }
+        }
+        .alert(settings.localized("通知权限未开启"), isPresented: Binding(
+            get: { batteryReminder.permissionMessage != nil },
+            set: { if !$0 { batteryReminder.permissionMessage = nil } }
+        )) {
+            Button(settings.localized("打开系统设置")) { batteryReminder.openNotificationSettings() }
+            Button(settings.localized("取消"), role: .cancel) { }
+        } message: {
+            Text(batteryReminder.permissionMessage ?? "")
         }
         .alert(settings.localized("无法更改开机启动"), isPresented: Binding(
             get: { loginItem.error != nil },
@@ -136,60 +150,61 @@ struct SettingsView: View {
             )
             PanelDivider()
             MenuBarBatterySettingsRow(settings: settings, group: model.headphones)
+            PanelDivider()
+            SettingsToggleRow(
+                title: settings.localized("低电量提醒"),
+                detail: settings.localized("耳机电量降至 20% 时发送通知。"),
+                isOn: Binding(get: { settings.lowBatteryReminderEnabled }, set: { value in
+                    if let value { batteryReminder.setEnabled(value) }
+                })
+            )
+            .disabled(batteryReminder.isRequesting)
         }
     }
 
     private var footer: some View {
-        HStack {
-            if let url = AuxmoProjectLinks.repositoryURL {
-                Button {
-                    NSWorkspace.shared.open(url)
-                } label: {
-                    Text("Auxmo \(AuxmoVersion.current)")
+        VStack(alignment: .leading, spacing: 0) {
+            // 检查更新保持独立一行，右侧只显示一个文字入口。
+            PanelDivider()
+            HStack(spacing: 12) {
+                // 沿用构建时注入的项目地址，点击版本文字打开 GitHub 仓库。
+                Button("Auxmo \(AuxmoVersion.current)") {
+                    if let url = AuxmoProjectLinks.repositoryURL { NSWorkspace.shared.open(url) }
                 }
                 .buttonStyle(.plain)
-                .font(PanelStyle.captionFont)
-                .foregroundStyle(repositoryLinkHover.active ? PanelStyle.ink : PanelStyle.secondary)
-                .onHover { repositoryLinkHover.active = $0 }
-                .help(settings.localized("打开 GitHub 项目主页"))
-            } else {
-                Text("Auxmo \(AuxmoVersion.current)")
-                    .font(PanelStyle.captionFont)
-                    .foregroundStyle(PanelStyle.secondary)
+                .font(PanelStyle.bodyFont)
+                .foregroundStyle(projectLinkHover.active ? PanelStyle.ink : PanelStyle.secondary)
+                .onHover { projectLinkHover.active = $0 }
+                .help("GitHub")
+                Spacer(minLength: 12)
+                Button {
+                    updates.check(force: true)
+                } label: {
+                    Text(updateCheckTitle)
+                }
+                .buttonStyle(.plain)
+                .font(PanelStyle.bodyFont)
+                .foregroundStyle(updateCheckHover.active && !updates.isChecking
+                                 ? PanelStyle.ink : PanelStyle.secondary)
+                .onHover { updateCheckHover.active = $0 }
+                .disabled(updates.isChecking)
+                .help(updates.lastError ?? settings.localized("检查更新"))
+                .accessibilityIdentifier("settings.checkForUpdates")
             }
-            Spacer()
-            updateControl
+            .frame(minHeight: SettingsMetrics.rowHeight)
         }
+        .padding(.top, 8)
     }
 
-    @ViewBuilder private var updateControl: some View {
-        if updates.availableUpdate != nil {
-            AuxmoUpdateCapsule(updates: updates, settings: settings, presentation: .text)
-        } else if updates.didCheckWithoutUpdate {
-            Text(settings.localized("未发现新版本"))
-                .font(PanelStyle.captionFont)
-                .foregroundStyle(PanelStyle.secondary)
-        } else if let error = updates.lastError {
-            Button(settings.localized("检查失败，重试")) {
-                updates.check(force: true)
-            }
-            .buttonStyle(.plain)
-            .font(PanelStyle.captionFont)
-            .foregroundStyle(PanelStyle.error)
-            .disabled(updates.isChecking)
-            .help(error)
-        } else {
-            Button(settings.localized(updates.isChecking ? "正在检查更新…" : "检查更新")) {
-                updates.check(force: true)
-            }
-            .buttonStyle(.plain)
-            .font(PanelStyle.captionFont)
-            // 只变文字颜色，不增加悬停底板；检查中不呈现可点击的高亮。
-            .foregroundStyle(updateCheckHover.active && !updates.isChecking
-                             ? PanelStyle.ink : PanelStyle.secondary)
-            .onHover { updateCheckHover.active = $0 }
-            .disabled(updates.isChecking)
+    /// 同一个文字入口显示检查状态；结果出现后仍可点击重新检查。
+    private var updateCheckTitle: String {
+        if updates.isChecking { return settings.localized("正在检查更新…") }
+        if let update = updates.availableUpdate {
+            return settings.localizedFormat("发现新版本 %@", update.version)
         }
+        if updates.lastError != nil { return settings.localized("检查失败，重试") }
+        if updates.didCheckWithoutUpdate { return settings.localized("未发现新版本") }
+        return settings.localized("检查更新")
     }
 
     private var diagnosticsCard: some View {

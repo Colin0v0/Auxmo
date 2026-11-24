@@ -57,6 +57,7 @@ final class AppSettings: ObservableObject {
         static let simultaneousOutput = "com.colin0v0.auxmo.settings.showSimultaneousOutput"
         static let appAudioEffects = "com.colin0v0.auxmo.settings.appAudioEffectsEnabled"
         static let menuBarBatterySource = "com.colin0v0.auxmo.settings.menuBarBatterySource"
+        static let lowBatteryReminder = "com.colin0v0.auxmo.settings.lowBatteryReminder"
         static let menuBarDeviceIcon = "com.colin0v0.auxmo.settings.menuBarDeviceIcon"
         static let legacyCurrentDeviceBattery = "com.colin0v0.auxmo.settings.showCurrentDeviceBattery"
     }
@@ -73,6 +74,7 @@ final class AppSettings: ObservableObject {
     @Published var showSimultaneousOutput: Bool? { didSet { persist(showSimultaneousOutput, key: Key.simultaneousOutput) } }
     @Published var appAudioEffectsEnabled: Bool? { didSet { persist(appAudioEffectsEnabled, key: Key.appAudioEffects) } }
     @Published var menuBarBatterySource: MenuBarBatterySource? { didSet { persist(menuBarBatterySource?.storageValue, key: Key.menuBarBatterySource) } }
+    @Published var lowBatteryReminderEnabled: Bool? { didSet { persist(lowBatteryReminderEnabled, key: Key.lowBatteryReminder) } }
     @Published var showMenuBarDeviceIcon: Bool? { didSet { persist(showMenuBarDeviceIcon, key: Key.menuBarDeviceIcon) } }
 
     init(defaults: UserDefaults = .standard) {
@@ -87,6 +89,7 @@ final class AppSettings: ObservableObject {
         showHeadphoneControls = Self.read(defaults, key: Key.headphones, initial: false, errors: &errors, decode: Self.boolean)
         showSimultaneousOutput = Self.read(defaults, key: Key.simultaneousOutput, initial: false, errors: &errors, decode: Self.boolean)
         appAudioEffectsEnabled = Self.read(defaults, key: Key.appAudioEffects, initial: false, errors: &errors, decode: Self.boolean)
+        lowBatteryReminderEnabled = Self.read(defaults, key: Key.lowBatteryReminder, initial: false, errors: &errors, decode: Self.boolean)
         showMenuBarDeviceIcon = Self.read(defaults, key: Key.menuBarDeviceIcon, initial: false, errors: &errors, decode: Self.boolean)
         if defaults.object(forKey: Key.menuBarBatterySource) != nil {
             // 新记录存在就只能解析新记录；损坏时不读旧键，更不能写回迁移结果。
@@ -157,6 +160,14 @@ enum L10n {
     }
 
     private static let english: [String: String] = [
+        "低电量提醒": "Low Battery Alert",
+        "耳机电量降至 20% 时发送通知。": "Notify when headphone battery reaches 20%.",
+        "耳机电量低": "Headphone Battery Low",
+        "%@ 电量为 %d%%，请充电。": "%@ battery is at %d%%. Please charge it.",
+        "通知权限未开启": "Notifications Are Disabled",
+        "请在系统设置中允许 Auxmo 发送通知。": "Allow Auxmo notifications in System Settings.",
+        "使用": "Use", "观测": "Insights", "常规": "General", "统计": "Statistics",
+        "收起侧边栏": "Hide Sidebar", "展开侧边栏": "Show Sidebar",
         "全部静音": "Mute All",
         "仅静音 Auxmo 已接管的应用。新播放应用可能短暂出声，不包含系统提示音。":
             "Mutes apps managed by Auxmo only. Newly playing apps may be heard briefly; system sounds are not included.",

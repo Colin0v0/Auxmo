@@ -3,6 +3,7 @@ import SwiftUI
 enum AuxmoUpdatePresentation {
     case capsule
     case text
+    case icon
 }
 
 /// 主面板和设置页共享同一套更新状态，避免两处文案和操作不一致。
@@ -10,6 +11,8 @@ struct AuxmoUpdateCapsule: View {
     @ObservedObject var updates: AuxmoUpdateChecker
     @ObservedObject var settings: AppSettings
     var presentation: AuxmoUpdatePresentation = .capsule
+    // 胶囊可控制图标可见性；主窗口通过独立的 icon 样式保持固定尺寸。
+    var showsIcon = true
 
     var body: some View {
         if let update = updates.availableUpdate {
@@ -18,7 +21,8 @@ struct AuxmoUpdateCapsule: View {
                              language: settings.resolvedLanguage,
                              action: primaryAction,
                              skip: updates.skipAvailableUpdate,
-                             presentation: presentation)
+                             presentation: presentation,
+                             showsIcon: showsIcon)
             .help(helpText(update: update))
             .accessibilityLabel(settings.localizedFormat("更新到 %@", update.version))
         }
@@ -50,16 +54,46 @@ struct AuxmoUpdateBadge: View {
     let action: () -> Void
     let skip: () -> Void
     var presentation: AuxmoUpdatePresentation = .capsule
+    var showsIcon = true
     @StateObject private var hover = HoverState()
     private final class HoverState: ObservableObject {
         @Published var active = false
     }
 
     var body: some View {
-        if Self.usesTextPresentation(phase, presentation: presentation) {
+        if presentation == .icon {
+            iconPrompt
+        } else if Self.usesTextPresentation(phase, presentation: presentation) {
             textPrompt
         } else {
             capsulePrompt
+        }
+    }
+
+    /// 主窗口导航只显示图标；发现版本、下载与重启阶段均保持同一占位。
+    private var iconPrompt: some View {
+        Button(action: action) {
+            Group {
+                if isBusy {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: phase == .ready ? "arrow.clockwise" : iconName)
+                        .font(.system(size: 13))
+                        .foregroundStyle(textForeground)
+                }
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isBusy || phase == .idle)
+        .help(textTitle)
+        .accessibilityLabel(textTitle)
+        .accessibilityValue(isBusy ? title : "")
+        .contextMenu {
+            if canSkip {
+                Button(L10n.format("跳过 %@", language: language, arguments: [version]), action: skip)
+            }
         }
     }
 
@@ -96,8 +130,10 @@ struct AuxmoUpdateBadge: View {
     private var capsulePrompt: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: iconName)
-                    .font(.system(size: 11, weight: .semibold))
+                if showsIcon {
+                    Image(systemName: iconName)
+                        .font(.system(size: 11, weight: .semibold))
+                }
                 Text(title)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)

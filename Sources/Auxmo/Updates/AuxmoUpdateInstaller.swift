@@ -23,6 +23,10 @@ enum AuxmoUpdateInstaller {
     }
 
     static func prepareStaging(for update: AuxmoAvailableUpdate) throws -> Paths {
+        // 正式更新包不能覆盖开发构建，否则两者又会变成同一个应用身份。
+        guard Bundle.main.bundleIdentifier == "com.colin0v0.auxmo.app" else {
+            throw AuxmoUpdateError.developmentBuild
+        }
         let parent = appURL.deletingLastPathComponent()
         guard FileManager.default.isWritableFile(atPath: parent.path) else {
             throw AuxmoUpdateError.appDirectoryNotWritable(parent.path)
@@ -68,6 +72,9 @@ enum AuxmoUpdateInstaller {
     }
 
     static func validateReadyInstall(expectedVersion: String) throws {
+        guard Bundle.main.bundleIdentifier == "com.colin0v0.auxmo.app" else {
+            throw AuxmoUpdateError.developmentBuild
+        }
         let paths = currentPaths(version: expectedVersion)
         guard FileManager.default.fileExists(atPath: paths.payload.path) else {
             throw AuxmoUpdateError.readyInstallMissing

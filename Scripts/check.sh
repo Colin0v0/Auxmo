@@ -14,7 +14,10 @@ swift build --build-tests -Xswiftc -load-plugin-library -Xswiftc "$TESTING_PLUGI
 ./Scripts/prepare-test-resources.sh
 swift test --skip-build --no-parallel -Xswiftc -load-plugin-library -Xswiftc "$TESTING_PLUGIN"
 ./Scripts/build-app.sh
-APP="${AUXMO_BUILD_OUTPUT_ROOT:-dist/build}/${AUXMO_BUILD_CONFIGURATION:-debug}/Auxmo.app"
+CHECK_CONFIGURATION="${AUXMO_BUILD_CONFIGURATION:-debug}"
+CHECK_APP_NAME="Auxmo"
+if [[ "$CHECK_CONFIGURATION" == "debug" ]]; then CHECK_APP_NAME="Auxmo (develop)"; fi
+APP="${AUXMO_BUILD_OUTPUT_ROOT:-dist/build}/$CHECK_CONFIGURATION/$CHECK_APP_NAME.app"
 codesign --verify --strict "$APP"
 "$APP/Contents/MacOS/Auxmo" --diagnose
 
