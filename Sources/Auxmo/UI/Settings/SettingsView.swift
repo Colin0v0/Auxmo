@@ -318,12 +318,12 @@ private struct StatisticsDataSettings: View {
             PanelDivider()
             SettingsRow(title: text("导出统计数据", "Export Statistics")) {
                 Button(text("导出…", "Export…")) { export() }
-                    .buttonStyle(.plain).foregroundStyle(PanelStyle.secondary)
+                    .buttonStyle(PanelButtonStyle(prominent: true))
             }
             PanelDivider()
             SettingsRow(title: text("清除统计数据", "Clear Statistics")) {
                 Button(text("清除…", "Clear…")) { confirmClear() }
-                    .buttonStyle(.plain).foregroundStyle(PanelStyle.secondary)
+                    .buttonStyle(PanelButtonStyle(prominent: true))
                     .disabled(statistics.firstRecordedDate() == nil)
             }
         }

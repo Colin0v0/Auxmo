@@ -149,8 +149,6 @@ struct AuxmoUpdateBadge: View {
         // 忙碌状态仍要清晰可读；action 本身会忽略下载和准备阶段的点击。
         .allowsHitTesting(!isBusy)
         .accessibilityValue(isBusy ? L10n.text("进行中", language: language) : "")
-        .onHover { hover.active = $0 }
-        .animation(.easeOut(duration: 0.12), value: hover.active)
         .overlay(alignment: .topTrailing) {
             if canSkip {
                 Button(action: skip) {
@@ -163,6 +161,10 @@ struct AuxmoUpdateBadge: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
+                // 隐藏时不接受鼠标或辅助功能操作；悬停到胶囊和叉号区域才显示。
+                .opacity(hover.active ? 1 : 0)
+                .allowsHitTesting(hover.active)
+                .accessibilityHidden(!hover.active)
                 .help(L10n.format("跳过 %@", language: language, arguments: [version]))
                 .accessibilityLabel(L10n.format("跳过 %@", language: language, arguments: [version]))
                 // 关闭入口只在胶囊右上角轻微外露，不占据正文高度。
@@ -172,6 +174,10 @@ struct AuxmoUpdateBadge: View {
         // 叉号超出胶囊时不能被裁切；只有可跳过状态才占用视觉空间。
         .padding(.top, canSkip ? 5 : 0)
         .padding(.trailing, canSkip ? 5 : 0)
+        // 外层范围覆盖露出的叉号，鼠标从胶囊移到叉号时不会提前隐藏。
+        .contentShape(Rectangle())
+        .onHover { hover.active = $0 }
+        .animation(.easeOut(duration: 0.12), value: hover.active)
     }
 
     private var canSkip: Bool { Self.showsDismiss(phase) }

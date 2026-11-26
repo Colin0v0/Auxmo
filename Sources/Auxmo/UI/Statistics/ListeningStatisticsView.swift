@@ -6,6 +6,7 @@ struct ListeningStatisticsView: View {
     @ObservedObject var statistics: ListeningStatisticsStore
     @StateObject private var presentation: ListeningStatisticsPresentation
     @Environment(\.appLanguage) private var language
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var english: Bool { language == .english }
     private func text(_ chinese: String, _ english: String) -> String { self.english ? english : chinese }
     private var displayLocale: Locale { Locale(identifier: english ? "en_US" : "zh_CN") }
@@ -54,7 +55,9 @@ struct ListeningStatisticsView: View {
                     ScrollView {
                         pageBody
                             .id("statistics-top")
-                            .padding(.horizontal, 24).padding(.top, 20).padding(.bottom, 28)
+                            // 统计页由窗口导航栏提供顶部层级，内容直接贴在导航栏下方，
+                            // 避免进入统计或详情时多出一段空白。
+                            .padding(.horizontal, 24).padding(.top, 0).padding(.bottom, 28)
                             .background(DashboardScrollbars())
                     }
                     .onChange(of: presentation.detail?.scope) { _, _ in
@@ -157,15 +160,18 @@ struct ListeningStatisticsView: View {
 
     private var overview: some View {
         let valueSize: CGFloat = compact ? 24 : 28
+        let averages = ListeningDailyAverages(total: total, activeDays: activeDays, selectedDays: days.count)
         return HStack(alignment: .top, spacing: compact ? 10 : 12) {
             metric(text("累计聆听", "Total Listening"), detail: comparisonText) {
                 durationValue(total, size: valueSize)
             }
-            metric(text("平均每天", "Daily Average"), detail: activeDays > 0 ? text("使用日平均 \(durationText(total / Double(activeDays)))", "Active-day avg \(durationText(total / Double(activeDays)))") : text("暂无使用日", "No active days")) {
-                // 日均覆盖所选范围的全部日期，未播放的日期也计入分母。
-                durationValue(total / Double(days.count), size: valueSize)
+            metric(text("平均每天", "Daily Average"), detail: text(
+                "所选天数日均 \(durationText(averages.selectedDay))",
+                "Selected-day avg \(durationText(averages.selectedDay))")) {
+                // 主数字仅计算有记录的日期；下方另列所选全部日期的平均值。
+                durationValue(averages.activeDay, size: valueSize)
             }
-            .help(text("所选 \(days.count) 天的总时长 ÷ \(days.count)", "Total time ÷ \(days.count) selected days"))
+            .help(text("总时长 ÷ 有记录的 \(activeDays) 天", "Total time ÷ \(activeDays) recorded days"))
             if !compact {
                 metric(text("活跃天数", "Active Days"), detail: text("占所选天数 \(Int((Double(activeDays) / Double(days.count) * 100).rounded()))%", "\(Int((Double(activeDays) / Double(days.count) * 100).rounded()))% of selected days")) {
                     countValue(activeDays, unit: text("天", activeDays == 1 ? "day" : "days"), size: valueSize)
@@ -238,7 +244,8 @@ struct ListeningStatisticsView: View {
                 }
             }
             .chartXScale(domain: since...end)
-            .chartYScale(domain: 0...maximum)
+            // 时长不能为负；零刻度贴紧绘图区底边，避免默认留白看起来像负数范围。
+            .chartYScale(domain: 0...maximum, range: .plotDimension(startPadding: 0, endPadding: 0))
             .chartXSelection(value: $presentation.selectedDate)
             .chartXAxis {
                 // 刻度落在对应日期的中心，与柱形和选中虚线使用同一坐标。
@@ -443,16 +450,16 @@ struct ListeningStatisticsView: View {
                             .frame(width: 18)
                         ForEach(0..<24, id: \.self) { hour in
                             let label = "\(weekdayNames[day]) \(hour):00–\(hour + 1):00 · \(durationText(values[day][hour] * 60))"
-                            RoundedRectangle(cornerRadius: 2)
+                            let hovered = presentation.hoveredHeatmapCell == HeatmapCell(day: day, hour: hour)
+                            RoundedRectangle(cornerRadius: hovered ? 3 : 2)
                                 .fill(heatColor(values[day][hour], peak: peak))
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 11)
-                                .overlay {
-                                    if presentation.hoveredHeatmapCell == HeatmapCell(day: day, hour: hour) {
-                                        RoundedRectangle(cornerRadius: 2)
-                                            .strokeBorder(PanelStyle.ink.opacity(0.55), lineWidth: 1)
-                                    }
-                                }
+                                // 悬停格子轻微放大并浮起，保留列宽不变，避免热力图整体跳动。
+                                .frame(height: hovered ? 14 : 11)
+                                .shadow(color: hovered ? .black.opacity(0.18) : .clear,
+                                        radius: hovered ? 3 : 0, y: hovered ? 2 : 0)
+                                .scaleEffect(hovered ? 1.08 : 1, anchor: .center)
+                                .zIndex(hovered ? 2 : 0)
                                 .contentShape(Rectangle())
                                 .onHover { hovering in
                                     let cell = HeatmapCell(day: day, hour: hour)
@@ -461,6 +468,7 @@ struct ListeningStatisticsView: View {
                                 }
                                 .help(label)
                                 .accessibilityLabel(label)
+                                .animation(PanelStyle.animation(reduceMotion: reduceMotion), value: hovered)
                         }
                     }
                 }

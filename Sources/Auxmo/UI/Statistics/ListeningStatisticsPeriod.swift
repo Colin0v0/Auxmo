@@ -1,5 +1,16 @@
 import Foundation
 
+/// 两种日均分别保留明确分母，空记录时不除以零。
+struct ListeningDailyAverages {
+    let activeDay: Double
+    let selectedDay: Double
+
+    init(total: Double, activeDays: Int, selectedDays: Int) {
+        activeDay = activeDays > 0 ? total / Double(activeDays) : 0
+        selectedDay = selectedDays > 0 ? total / Double(selectedDays) : 0
+    }
+}
+
 /// 范围包含今天，从本地午夜开始，保证汇总、柱状图和热力图使用同一条日期边界。
 enum ListeningStatisticsPeriod: Int, CaseIterable, Identifiable {
     case week = 7

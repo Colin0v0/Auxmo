@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">Auxmo</h1>
 <p align="center"><strong>Your Mac. Your Sound. Your Rules.</strong></p>
-<p align="center">每个 App 的音量、输出路由与耳机控制，都在菜单栏。</p>
+<p align="center">每个 App 的音量、输出路由、耳机控制与聆听统计，都在 Mac 上。</p>
 <p align="center"><a href="README.md">English</a> · <strong>简体中文</strong></p>
 <p align="center">
   <a href="https://github.com/Colin0v0/Auxmo/releases/latest"><img src="https://img.shields.io/github/v/release/Colin0v0/Auxmo" alt="最新版本" /></a>
@@ -32,7 +32,7 @@
 
 需要临时静音 App 时，可点主面板右上角的 **全部静音**。它只覆盖 Auxmo 能观察并接管的 App 音频；新开始播放的 App 在被发现前可能短暂出声，系统提示音也不在范围内，**不能作为绝对防漏音保证**。关闭后恢复各 App 原有的静音状态。
 
-## 四个核心功能
+## 核心功能
 
 <table>
 <tr>
@@ -60,6 +60,17 @@
 </td>
 </tr>
 </table>
+
+## 看看你的聆听习惯
+
+从菜单栏打开详情，选择 **观测 → 统计**，查看累计时长、每日趋势、设备与 App 排行、使用时段和会话明细。可切换 7 天、30 天、90 天、180 天、一年或全部记录；点击设备或 App 可以查看对应详情和关联排行。
+
+<p align="center">
+  <a href="docs/images/statistics-zh.png"><img src="docs/images/statistics-zh.png" width="820" alt="Auxmo 聆听统计预览：时间范围、累计时长、每日柱状图、输出设备、应用排行与使用时段热力图" /></a>
+</p>
+<p align="center"><sub>统计页预览使用 0.4.5 开发版和示例数据，不是实际用户记录。<a href="docs/images/README.md">图片来源</a>。</sub></p>
+
+统计只记录 Auxmo 在 Mac 上运行时观察到的音频活动，数据保存在本机；它不是完整的屏幕使用时长，也不读取 iPhone 健康数据。应用与设备关系依据可确认的输出路由记录；历史记录、采样间隔和会话划分仍有估算误差。可在 **设置 → 统计数据** 查看记录起始日期、导出 JSON 或确认后清除记录。
 
 ## 怎么用：浏览器走扬声器，音乐走耳机
 
@@ -118,7 +129,7 @@ Auxmo 在本机处理音频，不保存录音、不上传音频，无需账号�
 git clone https://github.com/Colin0v0/Auxmo.git
 cd Auxmo
 ./Scripts/check.sh
-open dist/build/debug/Auxmo.app
+open 'dist/build/debug/Auxmo (develop).app'
 ```
 
 `check.sh` 会运行测试、构建应用、验证本地签名，并在宿主 Mac 上读取输出和输入设备诊断。无需真实音频硬件的发布检查由 [GitHub Actions](https://github.com/Colin0v0/Auxmo/actions/workflows/release.yml) 执行。绿色 CI 表示这些检查通过，不代表 Apple 认证或全部硬件验收完成。
