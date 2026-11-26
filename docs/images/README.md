@@ -7,6 +7,7 @@ The PNGs are native renders of Auxmo's current SwiftUI/AppKit views using the in
 - `outputs-{en,zh}.png`: `SimultaneousOutputEditor`.
 - `effects-{en,zh}.png`: `ApplicationAudioEffectView`.
 - `headphones-{en,zh}.png`: `HeadphoneSection` using injected Apple headphone readings.
+- `statistics-{en,zh}.png`: `ListeningStatisticsView`, rendered from the 0.4.5 development version with isolated sample records; they do not contain real user data.
 - `routing-{en,zh}.svg`: a hand-authored configuration diagram, **not an application screenshot**. It assumes both target devices are online.
 
 Regenerate the PNGs on macOS with the Swift 6 toolchain:
@@ -21,6 +22,6 @@ When updating images, inspect both languages, check the UI version, and retain t
 
 ## 中文
 
-PNG 来自当前真实界面的原生渲染，数据由内存夹具提供，不是实时播放录屏，也不能证明某个耳机型号已通过真机测试。设备、App、音量、电量与模式均为示例。SVG 是手写的在线设备路由示意，不是界面截图。
+PNG 来自真实界面的原生渲染，统计图由 0.4.5 开发版渲染，其他图片的版本见首页说明；数据由隔离夹具提供，不是实时播放录屏，也不能证明某个耳机型号已通过真机测试。设备、App、音量、电量与模式均为示例。SVG 是手写的在线设备路由示意，不是界面截图。
 
 运行上面的脚本可重新生成双语图片。每种语言使用独立测试进程，只覆盖进程内参数，不修改用户保存的偏好，不播放或捕获音频、不连接蓝牙、不切换宿主设备。普通门禁不执行图片导出；原有回归测试没有被跳过或改弱。更新后请检查图片并保留来源说明。

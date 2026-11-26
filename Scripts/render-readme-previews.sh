@@ -11,13 +11,13 @@ OUTPUT_DIR="$(mktemp -d -t auxmo-readme-render)"
 trap 'rm -rf "$OUTPUT_DIR"' EXIT
 for language in en zh; do
     AUXMO_RENDER_README=1 AUXMO_README_LANGUAGE="$language" AUXMO_README_OUTPUT_DIR="$OUTPUT_DIR" \
-        swift test --skip-build --no-parallel --filter ReadmePreviewTests \
+        swift test --skip-build --no-parallel --filter 'ReadmePreviewTests|StatisticsReadmePreviewTests' \
         -Xswiftc -load-plugin-library -Xswiftc "$TESTING_PLUGIN"
 done
 # 两种语言都渲染成功后才更新文档资产；临时目录每次新建，不复制上次遗留截图。
 mkdir -p docs/images
 for language in en zh; do
-    for name in hero mixer outputs effects headphones; do
+    for name in hero mixer outputs effects headphones statistics; do
         cp "$OUTPUT_DIR/$language/$name.png" "docs/images/$name-$language.png"
     done
 done

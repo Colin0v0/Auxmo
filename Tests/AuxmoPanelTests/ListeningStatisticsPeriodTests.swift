@@ -5,6 +5,15 @@ import Testing
 @testable import Auxmo
 
 struct ListeningStatisticsPeriodTests {
+    @Test func dailyAveragesDistinguishRecordedDaysFromSelectedDays() {
+        let averages = ListeningDailyAverages(total: 160 * 60, activeDays: 2, selectedDays: 30)
+        #expect(averages.activeDay == 80 * 60)
+        #expect(averages.selectedDay == 320)
+        let empty = ListeningDailyAverages(total: 0, activeDays: 0, selectedDays: 30)
+        #expect(empty.activeDay == 0)
+        #expect(empty.selectedDay == 0)
+    }
+
     @Test func statisticsNavigationAndRangesHaveEnglishLabels() {
         #expect(L10n.text("观测", language: .english) == "Insights")
         #expect(L10n.text("统计", language: .english) == "Statistics")

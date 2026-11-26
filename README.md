@@ -3,7 +3,7 @@
 </p>
 <h1 align="center">Auxmo</h1>
 <p align="center"><strong>Your Mac. Your Sound. Your Rules.</strong></p>
-<p align="center">Per-app volume, audio routing, and headphone controls. Right in your menu bar.</p>
+<p align="center">Per-app volume, audio routing, headphone controls, and listening statistics for your Mac.</p>
 <p align="center"><strong>English</strong> · <a href="README.zh-CN.md">简体中文</a></p>
 <p align="center">
   <a href="https://github.com/Colin0v0/Auxmo/releases/latest"><img src="https://img.shields.io/github/v/release/Colin0v0/Auxmo" alt="Latest release" /></a>
@@ -60,6 +60,17 @@ Use **Mute All** at the top-right of the main panel to temporarily mute app audi
 </td>
 </tr>
 </table>
+
+## See your listening habits
+
+Open the detail window from the menu bar and choose **Insights → Statistics** to see listening totals, daily trends, device and app rankings, listening hours, and session details. Choose 7, 30, 90, or 180 days, one year, or all records; select a device or app to see its own details and related rankings.
+
+<p align="center">
+  <a href="docs/images/statistics-en.png"><img src="docs/images/statistics-en.png" width="820" alt="Auxmo listening statistics preview with time range, listening totals, daily chart, output devices, app rankings, and listening-hours heatmap" /></a>
+</p>
+<p align="center"><sub>Statistics preview rendered from the 0.4.5 development version with sample data, not a real user's records. <a href="docs/images/README.md">Image sources</a>.</sub></p>
+
+Statistics record audio activity observed while Auxmo runs on the Mac and are stored locally. They are not complete screen-time data and do not read iPhone Health data. App-to-device associations use confirmed output routes; historical records, sampling intervals, and session boundaries remain estimates. In **Settings → Statistics Data**, you can see the first recorded date, export JSON, or clear the records after confirmation.
 
 ## How it works
 
@@ -118,7 +129,7 @@ Requires a Swift 6 toolchain and macOS 15.4 or later:
 git clone https://github.com/Colin0v0/Auxmo.git
 cd Auxmo
 ./Scripts/check.sh
-open dist/build/debug/Auxmo.app
+open 'dist/build/debug/Auxmo (develop).app'
 ```
 
 `check.sh` runs tests, builds the app, checks the local signature, and reads output/input diagnostics on the host Mac. Hardware-independent release checks run in [GitHub Actions](https://github.com/Colin0v0/Auxmo/actions/workflows/release.yml). A green build is evidence of those checks, not Apple certification or complete hardware acceptance.
