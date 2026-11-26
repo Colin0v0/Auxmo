@@ -17,24 +17,24 @@ struct ListeningStatisticsPeriodTests {
     @Test func statisticsNavigationAndRangesHaveEnglishLabels() {
         #expect(L10n.text("观测", language: .english) == "Insights")
         #expect(L10n.text("统计", language: .english) == "Statistics")
-        #expect(ListeningStatisticsPeriod.allCases.map(\.englishTitle) == ["7d", "30d", "90d", "180d", "1y", "All"])
+        #expect(ListeningStatisticsPeriod.allCases.map(\.englishTitle) == ["Today", "7d", "30d", "90d", "180d", "1y", "All", "Custom"])
     }
 
     @Test @MainActor func changingRangeClearsSelectionAndExpandedRankings() {
         let presentation = ListeningStatisticsPresentation()
-        presentation.selectedDate = Date()
+        presentation.hoveredChartDate = Date()
         presentation.allDevices = true
         presentation.allApplications = true
 
         presentation.selectPeriod(.week)
 
         #expect(presentation.period == .week)
-        #expect(presentation.selectedDate == nil)
+        #expect(presentation.hoveredChartDate == nil)
         #expect(!presentation.allDevices)
         #expect(!presentation.allApplications)
     }
 
-    @Test(arguments: ListeningStatisticsPeriod.allCases.filter { $0 != .all })
+    @Test(arguments: ListeningStatisticsPeriod.allCases.filter { $0 != .all && $0 != .custom })
     func rangeIncludesExactlyTheSelectedNumberOfLocalDates(period: ListeningStatisticsPeriod) throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
@@ -59,6 +59,20 @@ struct ListeningStatisticsPeriodTests {
         #expect(days.last == calendar.startOfDay(for: now))
         #expect(ListeningStatisticsPeriod.all.days(endingAt: now, calendar: calendar).count == 1)
         #expect(ListeningStatisticsPeriod.all.axisDates(for: days, calendar: calendar).count <= 7)
+    }
+
+    @Test func customRangeIncludesBothCalendarEndpoints() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 12)))
+        let start = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 10, hour: 9)))
+        let end = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 12, hour: 18)))
+        let days = ListeningStatisticsPeriod.custom.days(endingAt: now, calendar: calendar,
+                                                         customRange: start...end)
+
+        #expect(days.count == 3)
+        #expect(days.first == calendar.startOfDay(for: start))
+        #expect(days.last == calendar.startOfDay(for: end))
     }
 
     @Test func daylightSavingChangeDoesNotSkipOrDuplicateADay() throws {

@@ -4,18 +4,20 @@ import AuxmoCore
 @MainActor
 enum RunningApplications {
     static func applications() -> [RunningApplicationInfo] {
-        let eligible = NSWorkspace.shared.runningApplications.filter {
-            $0.activationPolicy != .prohibited && $0.processIdentifier != getpid() && $0.bundleURL?.pathExtension == "app"
+        // 进程列表每两秒刷新；路径标准化只做一次，避免嵌套判断反复解析同一个 URL。
+        let candidates: [(app: NSRunningApplication, path: String)] = NSWorkspace.shared.runningApplications.compactMap { app in
+            guard app.activationPolicy != .prohibited, app.processIdentifier != getpid(),
+                  let bundle = app.bundleURL, bundle.pathExtension == "app" else { return nil }
+            return (app: app, path: bundle.standardizedFileURL.path)
         }
-        return eligible.filter { app in
-            guard let bundle = app.bundleURL else { return true }
-            // 菜单栏 App 是有效宿主；嵌套在宿主 App 内的 helper 一律不再作为顶层应用，
-            // 即使 Electron 类 helper 自己声明为 regular 前台应用，也必须归属到宿主。
-            return !eligible.contains { other in
-                guard other.processIdentifier != app.processIdentifier, let root = other.bundleURL else { return false }
-                return bundle.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/")
+        return candidates.filter { candidate in
+            // 菜单栏 App 是有效宿主；嵌套在宿主 App 内的 helper 一律归属到宿主。
+            !candidates.contains { other in
+                other.app.processIdentifier != candidate.app.processIdentifier
+                    && candidate.path.hasPrefix(other.path + "/")
             }
-        }.map { app in
+        }.map { candidate in
+            let app = candidate.app
             let bundleID: String
             if let value = app.bundleIdentifier { bundleID = value } else { bundleID = "" }
             return RunningApplicationInfo(processID: app.processIdentifier, bundleID: bundleID,
