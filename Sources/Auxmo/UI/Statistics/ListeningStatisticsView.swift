@@ -14,7 +14,6 @@ struct ListeningStatisticsView: View {
     private let now: Date
     private let showsScrollView: Bool
     private var period: ListeningStatisticsPeriod { presentation.period }
-    private var selectedDate: Date? { presentation.selectedDate }
     private var compact: Bool { presentation.compact }
     private var scope: ListeningStatisticsScope? { presentation.detail?.scope }
 
@@ -37,14 +36,23 @@ struct ListeningStatisticsView: View {
         _presentation = StateObject(wrappedValue: presentation)
     }
 
-    private var days: [Date] { period.days(endingAt: now, calendar: calendar, firstRecord: statistics.firstRecordedDate(scope: scope)) }
-    private var since: Date { days[0] }
-    private var total: Double { statistics.totalSeconds(since: since, scope: scope) }
-    private var activeDays: Int { statistics.dailyTotals(since: since, calendar: calendar, scope: scope).count }
-    private var devices: [ListeningDeviceSummary] { statistics.deviceSummaries(since: since, scope: scope) }
-    private var applications: [ListeningApplicationSummary] { statistics.applicationSummaries(since: since, scope: scope) }
+    private var days: [Date] {
+        period.days(endingAt: now, calendar: calendar, firstRecord: statistics.firstRecordedDate(scope: scope),
+                    customRange: presentation.customRange)
+    }
+    private var chartRange: ListeningDateRange {
+        ListeningDateRange(start: days[0], end: days[days.count - 1], now: now, calendar: calendar)
+    }
+    private var since: Date { chartRange.start }
+    private var until: Date { chartRange.until }
+    private var selectedDayCount: Int { days.count }
+    private var total: Double { statistics.totalSeconds(since: since, until: until, scope: scope) }
+    private var activeDays: Int { statistics.dailyTotals(since: since, until: until, calendar: calendar, scope: scope).count }
+    private var devices: [ListeningDeviceSummary] { statistics.deviceSummaries(since: since, until: until, scope: scope) }
+    private var applications: [ListeningApplicationSummary] { statistics.applicationSummaries(since: since, until: until, scope: scope) }
     private var dailyPoints: [ListeningDayPoint] {
-        let totals = statistics.dailyTotals(since: since, calendar: calendar, scope: scope)
+        // 按天筛选只更新汇总和明细，原范围柱图保持不变，方便连续比较各天。
+        let totals = statistics.dailyTotals(since: chartRange.start, until: chartRange.until, calendar: calendar, scope: scope)
         return days.map { ListeningDayPoint(date: $0, seconds: totals[$0, default: 0]) }
     }
 
@@ -142,25 +150,108 @@ struct ListeningStatisticsView: View {
     }
 
     private var periodPicker: some View {
-        // 窄面板分两行，保证六个范围按钮始终完整可点。
-        let layout = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
-                             : AnyLayout(HStackLayout(spacing: 16))
-        return layout {
-            Text("\(rangeDateLabel(since)) – \(rangeDateLabel(days[days.count - 1]))")
-                .font(PanelStyle.bodyFont)
-                .foregroundStyle(PanelStyle.secondary)
-                .lineLimit(1)
-                .help("\(dateLabel(since)) – \(dateLabel(days[days.count - 1]))")
-            if !compact { Spacer(minLength: 0) }
-            PanelTabs(items: ListeningStatisticsPeriod.allCases, selection: period,
+        VStack(alignment: .leading, spacing: 10) {
+            // 日期控件分两层；窄窗口也不会把日期标签和按钮挤在同一行。
+            HStack(spacing: 12) {
+                Text("\(rangeDateLabel(chartRange.start)) – \(rangeDateLabel(chartRange.end))")
+                    .font(PanelStyle.bodyFont).foregroundStyle(PanelStyle.secondary)
+                Spacer(minLength: 0)
+                Button {
+                    presentation.customStart = chartRange.start
+                    presentation.customEnd = chartRange.end
+                    presentation.customVisibleMonth = chartRange.start
+                    presentation.customSelectingEnd = false
+                    presentation.showsDatePicker = true
+                } label: {
+                    Text(text("自定义…", "Custom…"))
+                        .font(PanelStyle.bodyFont)
+                }
+                .buttonStyle(PanelButtonStyle(foreground: PanelStyle.secondary))
+                .popover(isPresented: $presentation.showsDatePicker) { customDatePicker }
+            }
+            PanelTabs(items: ListeningStatisticsPeriod.allCases.filter { $0 != .custom }, selection: period,
                       title: { english ? $0.englishTitle : $0.title }, select: presentation.selectPeriod)
-                .frame(maxWidth: compact ? .infinity : 390)
+                .frame(maxWidth: .infinity)
         }
+    }
+
+    private var customDatePicker: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 0) {
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        Button {
+                            presentation.shiftCustomMonth(by: -1, calendar: calendar)
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 24, height: 24)
+                        Text(customMonthTitle(presentation.customVisibleMonth))
+                            .font(PanelStyle.titleFont)
+                            .frame(maxWidth: .infinity)
+                        Text(customMonthTitle(calendar.date(byAdding: .month, value: 1,
+                                                            to: presentation.customVisibleMonth)!))
+                            .font(PanelStyle.titleFont)
+                            .frame(maxWidth: .infinity)
+                        Button {
+                            presentation.shiftCustomMonth(by: 1, calendar: calendar)
+                        } label: {
+                            Image(systemName: "chevron.right")
+                        }
+                        .buttonStyle(.plain)
+                        .frame(width: 24, height: 24)
+                    }
+                    HStack(alignment: .top, spacing: 20) {
+                        CustomStatisticsCalendarMonth(
+                            month: presentation.customVisibleMonth,
+                            calendar: calendar,
+                            minimum: calendar.startOfDay(for: statistics.firstRecordedDate() ?? now),
+                            maximum: calendar.startOfDay(for: now),
+                            start: presentation.customStart,
+                            end: presentation.customEnd,
+                            onSelect: { presentation.selectCustomDate($0, calendar: calendar) })
+                        CustomStatisticsCalendarMonth(
+                            month: calendar.date(byAdding: .month, value: 1,
+                                                 to: presentation.customVisibleMonth)!,
+                            calendar: calendar,
+                            minimum: calendar.startOfDay(for: statistics.firstRecordedDate() ?? now),
+                            maximum: calendar.startOfDay(for: now),
+                            start: presentation.customStart,
+                            end: presentation.customEnd,
+                            onSelect: { presentation.selectCustomDate($0, calendar: calendar) })
+                    }
+                    .padding(.horizontal, 12)
+                }
+                .padding(14)
+            }
+            Divider().overlay(PanelStyle.line)
+            HStack {
+                Button(text("取消", "Cancel")) { presentation.showsDatePicker = false }
+                    .buttonStyle(PanelButtonStyle())
+                Spacer()
+                Button(text("应用", "Apply")) {
+                    presentation.applyCustomRange(now: now, calendar: calendar)
+                }
+                .buttonStyle(PanelButtonStyle(prominent: true))
+                .disabled(presentation.customStart > presentation.customEnd)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+        }
+        .font(PanelStyle.bodyFont)
+        .frame(width: 540)
+        .background(PanelStyle.canvas)
+        .environment(\.locale, displayLocale)
+    }
+
+    private func customMonthTitle(_ date: Date) -> String {
+        date.formatted(Date.FormatStyle().year().month(.wide).locale(displayLocale))
     }
 
     private var overview: some View {
         let valueSize: CGFloat = compact ? 24 : 28
-        let averages = ListeningDailyAverages(total: total, activeDays: activeDays, selectedDays: days.count)
+        let averages = ListeningDailyAverages(total: total, activeDays: activeDays, selectedDays: selectedDayCount)
         return HStack(alignment: .top, spacing: compact ? 10 : 12) {
             metric(text("累计聆听", "Total Listening"), detail: comparisonText) {
                 durationValue(total, size: valueSize)
@@ -173,7 +264,7 @@ struct ListeningStatisticsView: View {
             }
             .help(text("总时长 ÷ 有记录的 \(activeDays) 天", "Total time ÷ \(activeDays) recorded days"))
             if !compact {
-                metric(text("活跃天数", "Active Days"), detail: text("占所选天数 \(Int((Double(activeDays) / Double(days.count) * 100).rounded()))%", "\(Int((Double(activeDays) / Double(days.count) * 100).rounded()))% of selected days")) {
+                metric(text("活跃天数", "Active Days"), detail: text("占所选天数 \(Int((Double(activeDays) / Double(selectedDayCount) * 100).rounded()))%", "\(Int((Double(activeDays) / Double(selectedDayCount) * 100).rounded()))% of selected days")) {
                     countValue(activeDays, unit: text("天", activeDays == 1 ? "day" : "days"), size: valueSize)
                 }
             }
@@ -183,7 +274,7 @@ struct ListeningStatisticsView: View {
     /// 用等长的完整自然日比较，全部范围不显示不合理的上一周期。
     private var comparisonText: String {
         guard period != .all else { return text("全部记录", "All records") }
-        let previousStart = calendar.date(byAdding: .day, value: -days.count, to: since)!
+        let previousStart = calendar.date(byAdding: .day, value: -selectedDayCount, to: since)!
         let previous = statistics.totalSeconds(since: previousStart, until: since, scope: scope)
         guard previous > 0 else { return text("上一周期暂无记录", "No previous-period data") }
         let difference = total - previous
@@ -206,10 +297,19 @@ struct ListeningStatisticsView: View {
         .accessibilityElement(children: .combine)
     }
 
+    @ViewBuilder
     private var dailyChart: some View {
+        if selectedDayCount == 1 {
+            hourlyChart
+        } else {
+            dailyChartContent
+        }
+    }
+
+    private var dailyChartContent: some View {
         let points = dailyPoints
         let maximum = chartMaximum(points)
-        let selected = selectedDate.flatMap { date in
+        let hovered = presentation.hoveredChartDate.flatMap { date in
             points.first { calendar.isDate($0.date, inSameDayAs: date) }
         }
         let end = calendar.date(byAdding: .day, value: 1, to: days[days.count - 1])!
@@ -217,8 +317,8 @@ struct ListeningStatisticsView: View {
             HStack {
                 Text(text("每日聆听", "Daily Listening")).font(.system(size: 13, weight: .semibold))
                 Spacer()
-                if let selected {
-                    Text("\(dateLabel(selected.date)) · \(durationText(selected.seconds))")
+                if let hovered {
+                    Text("\(dateLabel(hovered.date)) · \(durationText(hovered.seconds))")
                         .font(PanelStyle.captionFont)
                         .foregroundStyle(PanelStyle.secondary)
                         .monospacedDigit()
@@ -227,26 +327,49 @@ struct ListeningStatisticsView: View {
             Chart {
                 ForEach(points) { point in
                     // 每日时长是离散数据；空白日期不以折线连接，也不生成虚构的播放趋势。
-                    BarMark(x: .value(text("日期", "Date"), point.date, unit: .day),
-                            y: .value(text("时长", "Duration"), point.seconds / 60),
+                    let dateAxis = text("日期", "Date")
+                    let durationAxis = text("时长", "Duration")
+                    let minutes = point.seconds / 60
+                    BarMark(x: .value(dateAxis, point.date, unit: .day),
+                            y: .value(durationAxis, minutes),
                             width: .ratio(0.56))
                     .cornerRadius(2)
                     .foregroundStyle(PanelStyle.accent.opacity(
-                        selected == nil || selected?.date == point.date ? 0.72 : 0.22))
+                        hovered == nil || hovered?.date == point.date ? 0.72 : 0.22))
                     .accessibilityLabel(dateLabel(point.date))
                     .accessibilityValue(durationText(point.seconds))
                 }
-                if let selected {
-                    RuleMark(x: .value(text("选中日期", "Selected Date"), period.dayCenter(selected.date, calendar: calendar)))
+                if let hovered {
+                    RuleMark(x: .value(text("悬停日期", "Hovered Date"), period.dayCenter(hovered.date, calendar: calendar)))
                         .foregroundStyle(PanelStyle.secondary.opacity(0.35))
                         .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
                         .accessibilityHidden(true)
                 }
             }
-            .chartXScale(domain: since...end)
+            // 悬停只显示图表提示，不改变日期范围或下方统计数据。
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Color.clear.contentShape(Rectangle())
+                        .onContinuousHover { phase in
+                            switch phase {
+                            case .active(let location):
+                                guard let plot = proxy.plotFrame else { presentation.hoveredChartDate = nil; return }
+                                let frame = geometry[plot]
+                                guard frame.contains(location),
+                                      let date: Date = proxy.value(atX: location.x - frame.minX) else {
+                                    presentation.hoveredChartDate = nil; return
+                                }
+                                let day = calendar.startOfDay(for: date)
+                                presentation.hoveredChartDate = days.contains(day) ? day : nil
+                            case .ended:
+                                presentation.hoveredChartDate = nil
+                            }
+                        }
+                }
+            }
+            .chartXScale(domain: chartRange.start...end)
             // 时长不能为负；零刻度贴紧绘图区底边，避免默认留白看起来像负数范围。
             .chartYScale(domain: 0...maximum, range: .plotDimension(startPadding: 0, endPadding: 0))
-            .chartXSelection(value: $presentation.selectedDate)
             .chartXAxis {
                 // 刻度落在对应日期的中心，与柱形和选中虚线使用同一坐标。
                 AxisMarks(values: period.axisDates(for: days, calendar: calendar)) { value in
@@ -276,7 +399,7 @@ struct ListeningStatisticsView: View {
             .chartPlotStyle { $0.padding(.top, 4) }
             .frame(height: compact ? 136 : 156)
             .overlay {
-                if total == 0 {
+                if points.allSatisfy({ $0.seconds == 0 }) {
                     Text(text("暂无聆听记录", "No listening records"))
                         .font(PanelStyle.bodyFont)
                         .foregroundStyle(PanelStyle.secondary)
@@ -286,6 +409,85 @@ struct ListeningStatisticsView: View {
                 }
             }
         }
+    }
+
+    /// 只选中一天时按本地时间拆成 24 个小时，避免一根柱子掩盖当天的使用分布。
+    private var hourlyChart: some View {
+        let points = hourlyPoints
+        let maximum = hourlyChartMaximum(points)
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(text("每小时聆听", "Hourly Listening"))
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text(dateLabel(days[0]))
+                    .font(PanelStyle.captionFont)
+                    .foregroundStyle(PanelStyle.secondary)
+            }
+            Chart {
+                ForEach(points, id: \.hour) { point in
+                    BarMark(x: .value(text("小时", "Hour"), point.hour),
+                            y: .value(text("分钟", "Minutes"), point.minutes),
+                            width: .ratio(0.72))
+                        .cornerRadius(2)
+                        .foregroundStyle(PanelStyle.accent.opacity(point.minutes > 0 ? 0.72 : 0.18))
+                        .accessibilityLabel("\(point.hour):00–\(point.hour + 1):00")
+                        .accessibilityValue(durationText(point.minutes * 60))
+                }
+            }
+            .chartXScale(domain: 0...23)
+            .chartYScale(domain: 0...maximum, range: .plotDimension(startPadding: 0, endPadding: 0))
+            .chartXAxis {
+                AxisMarks(values: Array(stride(from: 0, through: 23, by: 3))) { value in
+                    AxisValueLabel {
+                        if let hour = value.as(Int.self) {
+                            Text("\(hour)").font(.system(size: 10))
+                                .foregroundStyle(PanelStyle.secondary)
+                        }
+                    }
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .trailing, values: [0, maximum / 2, maximum]) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                        .foregroundStyle(PanelStyle.line.opacity(0.7))
+                    AxisValueLabel {
+                        if let minutes = value.as(Double.self) {
+                            Text(durationText(minutes * 60))
+                                .font(.system(size: 10))
+                                .foregroundStyle(PanelStyle.secondary)
+                        }
+                    }
+                }
+            }
+            .chartPlotStyle { $0.padding(.top, 4) }
+            .frame(height: compact ? 136 : 156)
+            .overlay {
+                if points.allSatisfy({ $0.minutes == 0 }) {
+                    Text(text("暂无聆听记录", "No listening records"))
+                        .font(PanelStyle.bodyFont)
+                        .foregroundStyle(PanelStyle.secondary)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(PanelStyle.canvas)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    private var hourlyPoints: [(hour: Int, minutes: Double)] {
+        guard let day = days.first else { return [] }
+        let weekday = (calendar.component(.weekday, from: day) + 5) % 7
+        let values = statistics.heatmap(since: chartRange.start, until: chartRange.until,
+                                        calendar: calendar, scope: scope)
+        return (0..<24).map { (hour: $0, minutes: values[weekday][$0]) }
+    }
+
+    private func hourlyChartMaximum(_ points: [(hour: Int, minutes: Double)]) -> Double {
+        let peak = points.reduce(0) { max($0, $1.minutes) }
+        guard peak > 0 else { return 60 }
+        let step: Double = peak <= 60 ? 15 : 60
+        return max(30, ceil(peak / step) * step)
     }
 
     /// 纵轴以完整的 15 分钟或小时进位；空图保留 0、30 分、1 小时三个可区分的刻度。
@@ -347,7 +549,6 @@ struct ListeningStatisticsView: View {
         let hovered = presentation.hoveredRanking == selectedScope
         return Button {
             presentation.detail = ListeningStatisticsDetail(scope: selectedScope, title: row.title, icon: row.icon)
-            presentation.selectedDate = nil
             presentation.hoveredRanking = nil
         } label: {
         HStack(alignment: .top, spacing: 10) {
@@ -415,7 +616,7 @@ struct ListeningStatisticsView: View {
     }
 
     private var timeHeatmap: some View {
-        let values = statistics.heatmap(since: since, calendar: calendar, scope: scope)
+        let values = statistics.heatmap(since: since, until: until, calendar: calendar, scope: scope)
         let peak = values.flatMap { $0 }.max()!
         let weekdays = english ? ["M", "T", "W", "T", "F", "S", "S"] : ["一", "二", "三", "四", "五", "六", "日"]
         let weekdayNames = english ? ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] : ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
@@ -454,8 +655,8 @@ struct ListeningStatisticsView: View {
                             RoundedRectangle(cornerRadius: hovered ? 3 : 2)
                                 .fill(heatColor(values[day][hour], peak: peak))
                                 .frame(maxWidth: .infinity)
-                                // 悬停格子轻微放大并浮起，保留列宽不变，避免热力图整体跳动。
-                                .frame(height: hovered ? 14 : 11)
+                                // 固定布局高度；悬停只做视觉缩放，避免撑开整行和下方刻度。
+                                .frame(height: 11)
                                 .shadow(color: hovered ? .black.opacity(0.18) : .clear,
                                         radius: hovered ? 3 : 0, y: hovered ? 2 : 0)
                                 .scaleEffect(hovered ? 1.08 : 1, anchor: .center)
@@ -507,13 +708,13 @@ struct ListeningStatisticsView: View {
                 .font(.system(size: 13, weight: .semibold))
                 .help(text("会话根据音频活跃采样及时间间隔估算，历史记录精度为 15 分钟。", "Sessions are estimated from audio activity; historical records use 15-minute intervals."))
 
-            let durations = statistics.sessionDurations(since: since, scope: scope)
+            let durations = statistics.sessionDurations(since: since, until: until, scope: scope)
             VStack(spacing: 12) {
                 sessionRow(text("使用次数", "Sessions"), value: english ? "\(durations.count)" : "\(durations.count) 次")
                 sessionRow(text("平均每次", "Average Session"), value: durationText(
                     durations.isEmpty ? 0 : durations.reduce(0, +) / Double(durations.count)))
                 sessionRow(text("最长一次", "Longest Session"), value: durationText(durations.max() ?? 0))
-                if let busiest = dailyPoints.filter({ $0.seconds > 0 }).max(by: { $0.seconds < $1.seconds }) {
+                if let busiest = dailyPoints.filter({ $0.seconds > 0 && $0.date >= since && $0.date < until }).max(by: { $0.seconds < $1.seconds }) {
                     sessionRow(text("听得最多的一天", "Most Active Day"), value: "\(dateLabel(busiest.date)) · \(durationText(busiest.seconds))")
                 }
                 if let hour = busiestHour {
@@ -526,7 +727,7 @@ struct ListeningStatisticsView: View {
     }
 
     private var busiestHour: Int? {
-        let heat = statistics.heatmap(since: since, calendar: calendar, scope: scope)
+        let heat = statistics.heatmap(since: since, until: until, calendar: calendar, scope: scope)
         let totals = (0..<24).map { hour in heat.reduce(0) { $0 + $1[hour] } }
         guard let hour = totals.indices.max(by: { totals[$0] < totals[$1] }), totals[hour] > 0 else { return nil }
         return hour
@@ -604,7 +805,14 @@ struct ListeningStatisticsView: View {
 @MainActor
 final class ListeningStatisticsPresentation: ObservableObject {
     @Published private(set) var period: ListeningStatisticsPeriod = .month
-    @Published var selectedDate: Date?
+    @Published var hoveredChartDate: Date?
+    @Published var customStart = Calendar.current.startOfDay(for: Date())
+    @Published var customEnd = Calendar.current.startOfDay(for: Date())
+    @Published var customVisibleMonth = Calendar.current.startOfDay(for: Date())
+    @Published var customSelectingEnd = false
+    @Published var showsDatePicker = false
+    private var appliedCustomRange: ClosedRange<Date>?
+
     @Published var compact = false
     @Published var allDevices = false
     @Published var allApplications = false
@@ -613,12 +821,51 @@ final class ListeningStatisticsPresentation: ObservableObject {
     @Published var hoveredRanking: ListeningStatisticsScope?
     @Published fileprivate var detail: ListeningStatisticsDetail?
 
+    var customRange: ClosedRange<Date>? { appliedCustomRange }
+
+    func applyCustomRange(now: Date, calendar: Calendar) {
+        let range = ListeningDateRange(start: customStart, end: max(customStart, customEnd), now: now, calendar: calendar)
+        appliedCustomRange = range.start...range.end
+        // 再次应用自定义范围也必须清除旧的选中日。
+        resetRangeSelection()
+        customSelectingEnd = false
+        period = .custom
+        showsDatePicker = false
+    }
+
+    func shiftCustomMonth(by offset: Int, calendar: Calendar) {
+        customVisibleMonth = calendar.date(byAdding: .month, value: offset, to: customVisibleMonth)!
+    }
+
+    func selectCustomDate(_ date: Date, calendar: Calendar) {
+        let day = calendar.startOfDay(for: date)
+        if !customSelectingEnd {
+            customStart = day
+            customEnd = day
+            customSelectingEnd = true
+        } else if day < customStart {
+            customEnd = customStart
+            customStart = day
+            customSelectingEnd = false
+        } else {
+            customEnd = day
+            customSelectingEnd = false
+        }
+    }
+
+    private func resetRangeSelection() {
+        hoveredChartDate = nil
+        hoveredHeatmapCell = nil
+        allDevices = false
+        allApplications = false
+    }
+
     var detailTitle: String? { detail?.title }
 
     /// 返回总览同时清理详情的选择和悬停状态。
     func returnToOverview() {
         detail = nil
-        selectedDate = nil
+        hoveredChartDate = nil
         hoveredBack = false
         hoveredRanking = nil
     }
@@ -626,10 +873,7 @@ final class ListeningStatisticsPresentation: ObservableObject {
     /// 切换范围时同步清除旧图表选中日和列表展开状态，避免显示上个范围的明细。
     func selectPeriod(_ value: ListeningStatisticsPeriod) {
         guard value != period else { return }
-        selectedDate = nil
-        hoveredHeatmapCell = nil
-        allDevices = false
-        allApplications = false
+        resetRangeSelection()
         period = value
     }
 }
@@ -666,4 +910,68 @@ private enum ListeningRankingIcon {
 struct HeatmapCell: Equatable {
     let day: Int
     let hour: Int
+}
+
+/// 双月日期面板：日期选择使用固定 6 行网格，避免切换月份时弹窗尺寸跳动。
+private struct CustomStatisticsCalendarMonth: View {
+    let month: Date
+    let calendar: Calendar
+    let minimum: Date
+    let maximum: Date
+    let start: Date
+    let end: Date
+    let onSelect: (Date) -> Void
+
+    private var monthStart: Date { calendar.dateInterval(of: .month, for: month)!.start }
+    private var monthTitle: String {
+        month.formatted(Date.FormatStyle().year().month(.wide).locale(calendar.locale ?? .current))
+    }
+    private var firstOffset: Int {
+        (calendar.component(.weekday, from: monthStart) + 5) % 7
+    }
+    private var cells: [Date] {
+        (0..<42).map { calendar.date(byAdding: .day, value: $0 - firstOffset, to: monthStart)! }
+    }
+    private let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(monthTitle)
+                .font(PanelStyle.captionFont)
+                .foregroundStyle(PanelStyle.secondary)
+            LazyVGrid(columns: Array(repeating: GridItem(.fixed(26), spacing: 3), count: 7), spacing: 4) {
+                ForEach(weekdays, id: \.self) { weekday in
+                    Text(weekday)
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(PanelStyle.secondary)
+                        .frame(width: 26, height: 18)
+                }
+                ForEach(cells, id: \.self) { day in
+                    let currentMonth = calendar.component(.month, from: day) == calendar.component(.month, from: month)
+                    let disabled = !currentMonth || day < minimum || day > maximum
+                    let inRange = day >= min(start, end) && day <= max(start, end)
+                    let selected = calendar.isDate(day, inSameDayAs: start) || calendar.isDate(day, inSameDayAs: end)
+                    Button { if !disabled { onSelect(day) } } label: {
+                        Text("\(calendar.component(.day, from: day))")
+                            .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                            .foregroundStyle(disabled ? PanelStyle.secondary.opacity(0.28) : PanelStyle.ink)
+                            .frame(width: 26, height: 26)
+                            .background {
+                                if selected {
+                                    Circle()
+                                        .fill(PanelStyle.tabSelection)
+                                        .overlay {
+                                            Circle().strokeBorder(PanelStyle.ink.opacity(0.20), lineWidth: 1)
+                                        }
+                                } else if inRange {
+                                    RoundedRectangle(cornerRadius: 5).fill(PanelStyle.surface)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(disabled)
+                }
+            }
+        }
+    }
 }

@@ -194,49 +194,49 @@ final class ListeningStatisticsStore: ObservableObject {
     }
 
     /// 应用与设备按各自的活跃时间统计，允许同时使用，因此各项占比不一定互斥。
-    func deviceSummaries(since: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [ListeningDeviceSummary] {
+    func deviceSummaries(since: Date? = nil, until: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [ListeningDeviceSummary] {
         let metadata = Dictionary(grouping: buckets, by: \.deviceUID)
         return metadata.compactMap { uid, rows in
-            let old = legacyDimensionSeconds(rows: legacyBuckets.filter { $0.deviceUID == uid && (scope == nil || scope!.matches($0)) }, since: since)
-            let recent = intervalSeconds(since: since) { interval in
+            let old = legacyDimensionSeconds(rows: legacyBuckets.filter { $0.deviceUID == uid && (scope == nil || scope!.matches($0)) }, since: since, until: until)
+            let recent = intervalSeconds(since: since, until: until) { interval in
                 guard interval.devices.contains(uid), matches(interval, scope: scope) else { return false }
                 if case .application(let app) = scope { return containsPair(interval, application: app, device: uid) }
                 return true
             }
             let seconds = old + recent
             guard seconds > 0, let first = rows.first,
-                  let last = rows.filter({ since == nil || $0.start >= since! }).map(\.start).max() else { return nil }
+                  let last = rows.filter({ until == nil || $0.start < until! }).map(\.start).max() else { return nil }
             return ListeningDeviceSummary(id: uid, name: first.deviceName, kind: first.deviceKind,
                                           seconds: seconds, lastUsed: last)
         }.sorted { $0.seconds > $1.seconds }
     }
 
-    func applicationSummaries(since: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [ListeningApplicationSummary] {
+    func applicationSummaries(since: Date? = nil, until: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [ListeningApplicationSummary] {
         let metadata = Dictionary(grouping: buckets, by: \.applicationID)
         return metadata.compactMap { id, rows in
-            let old = legacyDimensionSeconds(rows: legacyBuckets.filter { $0.applicationID == id && (scope == nil || scope!.matches($0)) }, since: since)
-            let recent = intervalSeconds(since: since) { interval in
+            let old = legacyDimensionSeconds(rows: legacyBuckets.filter { $0.applicationID == id && (scope == nil || scope!.matches($0)) }, since: since, until: until)
+            let recent = intervalSeconds(since: since, until: until) { interval in
                 guard interval.applications.contains(id), matches(interval, scope: scope) else { return false }
                 if case .device(let uid) = scope { return containsPair(interval, application: id, device: uid) }
                 return true
             }
             let seconds = old + recent
             guard seconds > 0, let first = rows.first,
-                  let last = rows.filter({ since == nil || $0.start >= since! }).map(\.start).max() else { return nil }
+                  let last = rows.filter({ until == nil || $0.start < until! }).map(\.start).max() else { return nil }
             return ListeningApplicationSummary(id: id, name: first.applicationName, seconds: seconds, lastUsed: last)
         }.sorted { $0.seconds > $1.seconds }
     }
 
-    private func legacyDimensionSeconds(rows: [ListeningStatisticsBucket], since: Date?) -> Double {
-        let selected = rows.filter { since == nil || $0.start >= since! }
+    private func legacyDimensionSeconds(rows: [ListeningStatisticsBucket], since: Date?, until: Date?) -> Double {
+        let selected = rows.filter { (since == nil || $0.start >= since!) && (until == nil || $0.start < until!) }
         return Dictionary(grouping: selected, by: \.start).values.reduce(0) { total, bucket in
             total + bucket.map(\.seconds).max()!
         }
     }
 
-    private func intervalSeconds(since: Date?, matching: (Interval) -> Bool) -> Double {
+    private func intervalSeconds(since: Date?, until: Date?, matching: (Interval) -> Bool) -> Double {
         intervals.filter(matching).reduce(0) { result, interval in
-            result + max(0, interval.end.timeIntervalSince(max(interval.start, since ?? interval.start)))
+            result + max(0, min(interval.end, until ?? interval.end).timeIntervalSince(max(interval.start, since ?? interval.start)))
         }
     }
 
@@ -268,14 +268,14 @@ final class ListeningStatisticsStore: ObservableObject {
     }
 
     /// 新数据使用实际采样时间片，旧数据保留为估算；支持半开区间以比较前后周期。
-    private func totals(since: Date?, until: Date?, scope: ListeningStatisticsScope? = nil) -> [(Date, Double)] {
+    private func totals(since: Date?, until: Date?, scope: ListeningStatisticsScope? = nil, calendar: Calendar = .current) -> [(Date, Double)] {
         var result = legacyTotals(since: since, until: until, scope: scope)
         for interval in intervals where matches(interval, scope: scope) {
             let start = max(interval.start, since ?? interval.start)
             let end = min(interval.end, until ?? interval.end)
             var cursor = start
             while cursor < end {
-                let hourEnd = Calendar.current.dateInterval(of: .hour, for: cursor)!.end
+                let hourEnd = calendar.dateInterval(of: .hour, for: cursor)!.end
                 let segmentEnd = min(end, hourEnd)
                 result.append((cursor, segmentEnd.timeIntervalSince(cursor)))
                 cursor = segmentEnd
@@ -285,8 +285,8 @@ final class ListeningStatisticsStore: ObservableObject {
     }
 
     /// 合并连续采样片段；旧桶仅能按时间桶间距推算，不能视作精确播放会话。
-    func sessionDurations(since: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [Double] {
-        let pieces = totals(since: since, until: nil, scope: scope).sorted { $0.0 < $1.0 }
+    func sessionDurations(since: Date? = nil, until: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [Double] {
+        let pieces = totals(since: since, until: until, scope: scope).sorted { $0.0 < $1.0 }
         var result: [Double] = []
         var current = 0.0
         var previous: Date?
@@ -312,17 +312,17 @@ final class ListeningStatisticsStore: ObservableObject {
     func activeDayCount(since: Date? = nil, calendar: Calendar = .current) -> Int {
         dailyTotals(since: since, calendar: calendar).count
     }
-    func dailyTotals(since: Date? = nil, calendar: Calendar = .current, scope: ListeningStatisticsScope? = nil) -> [Date: Double] {
-        Dictionary(grouping: totals(since: since, until: nil, scope: scope), by: { calendar.startOfDay(for: $0.0) })
+    func dailyTotals(since: Date? = nil, until: Date? = nil, calendar: Calendar = .current, scope: ListeningStatisticsScope? = nil) -> [Date: Double] {
+        Dictionary(grouping: totals(since: since, until: until, scope: scope, calendar: calendar), by: { calendar.startOfDay(for: $0.0) })
             .mapValues { $0.reduce(0) { $0 + $1.1 } }
     }
     func totalSeconds(since: Date? = nil, until: Date? = nil, scope: ListeningStatisticsScope? = nil) -> Double {
         totals(since: since, until: until, scope: scope).reduce(0) { $0 + $1.1 }
     }
     /// 返回星期 × 小时的分钟数，数据按实际时间片去重。
-    func heatmap(since: Date? = nil, calendar: Calendar = .current, scope: ListeningStatisticsScope? = nil) -> [[Double]] {
+    func heatmap(since: Date? = nil, until: Date? = nil, calendar: Calendar = .current, scope: ListeningStatisticsScope? = nil) -> [[Double]] {
         var result = Array(repeating: Array(repeating: 0.0, count: 24), count: 7)
-        for (date, seconds) in totals(since: since, until: nil, scope: scope) {
+        for (date, seconds) in totals(since: since, until: until, scope: scope, calendar: calendar) {
             let weekday = (calendar.component(.weekday, from: date) + 5) % 7
             result[weekday][calendar.component(.hour, from: date)] += seconds / 60
         }
