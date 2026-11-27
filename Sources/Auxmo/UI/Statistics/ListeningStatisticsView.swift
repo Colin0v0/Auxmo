@@ -48,6 +48,8 @@ struct ListeningStatisticsView: View {
     private var since: Date { chartRange.start }
     private var until: Date { chartRange.until }
     private var selectedDayCount: Int { days.count }
+    /// 本周/本月/今年图表保留完整自然刻度，但日均、活跃占比和环比只按截至今天已到来的实际天数计算。
+    private var elapsedDayCount: Int { chartRange.days(calendar: calendar).count }
     private var total: Double { statistics.totalSeconds(since: since, until: until, scope: scope) }
     private var activeDays: Int { statistics.dailyTotals(since: since, until: until, calendar: calendar, scope: scope).count }
     private var devices: [ListeningDeviceSummary] { statistics.deviceSummaries(since: since, until: until, scope: scope) }
@@ -279,7 +281,7 @@ struct ListeningStatisticsView: View {
 
     private var overview: some View {
         let valueSize: CGFloat = compact ? 24 : 28
-        let averages = ListeningDailyAverages(total: total, activeDays: activeDays, selectedDays: selectedDayCount)
+        let averages = ListeningDailyAverages(total: total, activeDays: activeDays, selectedDays: elapsedDayCount)
         return HStack(alignment: .top, spacing: compact ? 10 : 12) {
             metric(text("累计聆听", "Total Listening"), detail: comparisonText) {
                 durationValue(total, size: valueSize)
@@ -292,16 +294,17 @@ struct ListeningStatisticsView: View {
             }
             .help(text("总时长 ÷ 有记录的 \(activeDays) 天", "Total time ÷ \(activeDays) recorded days"))
             if !compact {
-                metric(text("活跃天数", "Active Days"), detail: text("占所选天数 \(Int((Double(activeDays) / Double(selectedDayCount) * 100).rounded()))%", "\(Int((Double(activeDays) / Double(selectedDayCount) * 100).rounded()))% of selected days")) {
+                let sharePercent = elapsedDayCount > 0 ? Int((Double(activeDays) / Double(elapsedDayCount) * 100).rounded()) : 0
+                metric(text("活跃天数", "Active Days"), detail: text("占所选天数 \(sharePercent)%", "\(sharePercent)% of selected days")) {
                     countValue(activeDays, unit: text("天", activeDays == 1 ? "day" : "days"), size: valueSize)
                 }
             }
         }
     }
 
-    /// 用等长的完整自然日比较，全部范围不显示不合理的上一周期。
+    /// 用等长的已发生自然日比较，避免把本周/今年尚未到来的未来日期计入上一周期。
     private var comparisonText: String {
-        let previousStart = calendar.date(byAdding: .day, value: -selectedDayCount, to: since)!
+        let previousStart = calendar.date(byAdding: .day, value: -elapsedDayCount, to: since)!
         let previous = statistics.totalSeconds(since: previousStart, until: since, scope: scope)
         guard previous > 0 else { return text("上一周期暂无记录", "No previous-period data") }
         let difference = total - previous

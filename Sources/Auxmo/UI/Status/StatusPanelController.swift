@@ -71,7 +71,6 @@ final class StatusPanelController: NSObject {
     private let popup: StatusPopupPanel
     private let statusItem: NSStatusItem
     private let model: AppModel
-    private var settingsWindow: SettingsWindow?
     private var mainWindow: NSWindow?
     private let dashboardSelection = DashboardSelection()
     private lazy var applicationAudioEffectWindowController = ApplicationAudioEffectWindowController(model: model)
@@ -82,7 +81,6 @@ final class StatusPanelController: NSObject {
     private var globalClickMonitor: Any?
     private var localClickMonitor: Any?
     private var activationObserver: NSObjectProtocol?
-    private var settingsLanguageCancellable: AnyCancellable?
     private var statusBatteryCancellables: Set<AnyCancellable> = []
     private var presentationGeneration: UInt64 = 0
     private var popupPresented = false
@@ -170,12 +168,6 @@ final class StatusPanelController: NSObject {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateStatusItemBattery() }
             })
-        // 语言切换只重绘设置窗口标题，不重建已经打开的窗口内容。
-        settingsLanguageCancellable = AppSettings.shared.$language
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateSettingsWindowTitle() }
-            }
         audioPermissionMonitor = AudioCapturePermissionMonitor(
             access: model.$audioCaptureAccess.eraseToAnyPublisher(),
             currentAccess: { model.audioCaptureAccess },
@@ -386,10 +378,6 @@ final class StatusPanelController: NSObject {
         button.performClick(nil)
     }
 
-    private var settingsWindowTitle: String {
-        L10n.text("Auxmo 设置", language: AppSettings.shared.resolvedLanguage)
-    }
-
     private func updateStatusItemBattery() {
         guard let button = statusItem.button else { return }
         let settings = AppSettings.shared
@@ -420,10 +408,6 @@ final class StatusPanelController: NSObject {
         }
     }
 
-    private func updateSettingsWindowTitle() {
-        settingsWindow?.title = settingsWindowTitle
-    }
-
 }
 
 extension StatusPanelController: NSWindowDelegate {
@@ -443,13 +427,11 @@ extension StatusPanelController: NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         if notification.object as? NSWindow === popup { hidePopup(); return }
-        if notification.object as? NSWindow === settingsWindow {
-            AuxmoUpdateChecker.shared.resetSettingsPresentation()
-        }
         if notification.object as? NSWindow === mainWindow {
+            AuxmoUpdateChecker.shared.resetSettingsPresentation()
             mainWindow?.orderOut(nil)
-            // 关闭详情窗口不退出 Auxmo；菜单栏入口继续可用，同时移除 Dock 图标。
-            NSApp.setActivationPolicy(.prohibited)
+            // 关闭详情窗口不退出 Auxmo；退回 .accessory 移除 Dock 图标，同时不剥夺独立音效窗焦点。
+            NSApp.setActivationPolicy(.accessory)
         }
     }
 }

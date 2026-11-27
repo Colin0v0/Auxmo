@@ -81,8 +81,8 @@ final class AuxmoDelegate: NSObject, NSApplicationDelegate {
             }, onAudioPermissionDenied: { [weak self] in
                 self?.presentAudioPermissionDeniedAndQuit()
             })
-            // 启动时保持菜单栏模式；只有打开详情窗口时才显示 Dock 图标。
-            NSApp.setActivationPolicy(.prohibited)
+            // 启动时保持菜单栏无 Dock 图标模式，同时保留独立音效窗与文本弹窗的键盘激活能力；打开详情窗口时再切换为 .regular 显示 Dock 图标。
+            NSApp.setActivationPolicy(.accessory)
             AuxmoUpdateChecker.shared.startAutomaticChecking()
             #if DEBUG
             // 本地界面验收可显式打开详情页，复用正常的窗口创建和 Dock 显示流程。

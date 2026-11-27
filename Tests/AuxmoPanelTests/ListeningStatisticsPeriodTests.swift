@@ -290,6 +290,31 @@ struct ListeningStatisticsPeriodTests {
         #expect(store.firstRecordedDate(scope: .application("missing")) == nil)
     }
 
+    @Test @MainActor func corruptedDefaultsDoNotCrashAndStoppingPlaybackFlushesPendingRecords() throws {
+        let domain = "auxmo.statistics.corrupt-and-flush.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        defaults.set(Data("{corrupt".utf8), forKey: "com.colin0v0.auxmo.listeningStatistics.v1")
+
+        let damaged = ListeningStatisticsStore(defaults: defaults)
+        #expect(damaged.readError != nil)
+        try damaged.clearAll()
+        #expect(damaged.readError == nil)
+
+        let output = AudioOutput(id: 1, uid: "headphones", name: "耳机", transport: kAudioDeviceTransportTypeBluetooth)
+        let app = ApplicationAudioRow(id: "a", bundleID: "a", name: "A", applicationURL: nil, group: nil, isRunningOutput: true)
+        let active = [ListeningPlaybackObservation(application: app, outputs: [output])]
+        let base = Date(timeIntervalSince1970: 1_700_000_900)
+        // t=0 与 t=15 触发首次落盘，t=30 尚在 60s 节流期内，t=32 停止播放时必须立即落盘而不丢失后 15s。
+        damaged.record(at: base, observations: active)
+        damaged.record(at: base.addingTimeInterval(15), observations: active)
+        damaged.record(at: base.addingTimeInterval(30), observations: active)
+        damaged.record(at: base.addingTimeInterval(32), observations: [])
+
+        let reopened = ListeningStatisticsStore(defaults: defaults)
+        #expect(reopened.totalSeconds() == 30)
+    }
+
     private func bucket(at date: Date, seconds: Double) -> ListeningStatisticsBucket {
         ListeningStatisticsBucket(start: date, deviceUID: "test-output", deviceName: "测试耳机",
                                   deviceKind: .headphones, applicationID: "test-app",

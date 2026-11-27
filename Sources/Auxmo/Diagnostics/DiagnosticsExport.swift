@@ -68,6 +68,7 @@ struct AuxmoDiagnosticReport: Codable, Equatable {
     let system: DiagnosticSystemInfo
     let audio: DiagnosticAudioState
     let routing: DiagnosticRoutingState
+    let engine: AudioEngineDiagnosticSnapshot
     let applications: [DiagnosticApplicationState]
     let storedApplicationRoutes: [DiagnosticStoredRoute]
     let errors: DiagnosticErrorState
@@ -195,6 +196,7 @@ struct DiagnosticApplicationState: Codable, Equatable {
     let audioObjectIDs: [UInt32]
     let mix: DiagnosticMixState?
     let route: DiagnosticApplicationRoute
+    let routeExplanation: AudioRouteExplanation?
     let storedEffect: AppAudioEffectSettings?
     let effectConfigurationAvailable: Bool?
     let effectPresetsAvailable: Bool?
@@ -271,6 +273,7 @@ enum AuxmoDiagnosticExporter {
 extension AppModel {
     /// 快照从当前已发布状态构建，不在导出时主动重放或切换任何音频资源。
     func makeDiagnosticReport(generatedAt: Date = Date()) -> AuxmoDiagnosticReport {
+        refreshAudioGraphPlan()
         diagnosticEventLog.record(category: "diagnostics", message: "report requested", at: generatedAt)
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "unknown"
@@ -331,6 +334,7 @@ extension AppModel {
                 captureAccess: audioCaptureAccess.diagnosticDescription
             ),
             routing: diagnosticRouting(outputRouting),
+            engine: audioEngine.diagnosticSnapshot,
             applications: applicationStates,
             storedApplicationRoutes: storedRoutes,
             errors: DiagnosticErrorState(
@@ -413,12 +417,14 @@ extension AppModel {
                 effective: effectiveRoute.diagnosticDescription,
                 effectiveDeviceUIDs: effectiveRoute.customDeviceUIDs.sorted()
             ),
+            routeExplanation: routeExplanation(for: app.id),
             storedEffect: storageKey.flatMap { appAudioEffects[$0] },
             effectConfigurationAvailable: applicationEffectConfigurationAvailable,
             effectPresetsAvailable: applicationEffectPresetsAvailable,
             session: session.map {
                 DiagnosticApplicationSessionState(
-                    resources: ($0 as? ProcessAudioSession)?.resourceSnapshot,
+                    resources: ($0 as? EngineApplicationSession)?.resourceSnapshot
+                        ?? ($0 as? ProcessAudioSession)?.resourceSnapshot,
                     mode: $0.mode.diagnosticDescription,
                     output: DiagnosticDeviceRef(id: $0.output.id, uid: $0.output.uid, name: $0.output.name),
                     sourceOutputUID: $0.playbackRoute.sourceOutputUID,

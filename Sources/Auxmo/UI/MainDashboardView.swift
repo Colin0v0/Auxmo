@@ -93,7 +93,10 @@ struct MainDashboardView: View {
             model.setInputControlsVisible(false, for: .controlWindow)
             model.setMeteringVisible(false, for: .controlWindow)
         }
-        .onChange(of: selection.page) { _, value in
+        .onChange(of: selection.page) { oldValue, value in
+            if oldValue == .settings, value != .settings {
+                AuxmoUpdateChecker.shared.resetSettingsPresentation()
+            }
             model.setApplicationMetersSelected(value.displaysApplications, for: .controlWindow)
             model.setInputControlsVisible(value == .microphone, for: .controlWindow)
         }

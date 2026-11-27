@@ -25,11 +25,25 @@ enum HeadphoneConnectionGuard {
     static func check(_ outputUID: String, deviceIDs: [AudioDeviceID],
                       readUID: (AudioDeviceID) throws -> String,
                       isConnectedBluetoothOutput: (AudioDeviceID) throws -> Bool) throws {
-        for id in deviceIDs where try readUID(id) == outputUID {
-            guard try isConnectedBluetoothOutput(id) else {
-                throw AudioFailure("耳机已断开或不再是蓝牙输出设备")
+        var foundMatchingUID = false
+        for id in deviceIDs {
+            let uid: String
+            do {
+                uid = try readUID(id)
+            } catch let failure as AudioFailure where failure.status == HAL.badObjectStatus {
+                // HAL 列表中可能残留其他刚销毁的无关设备对象，跳过继续核验真实耳机句柄。
+                continue
             }
-            return
+            guard uid == outputUID else { continue }
+            foundMatchingUID = true
+            do {
+                if try isConnectedBluetoothOutput(id) { return }
+            } catch let failure as AudioFailure where failure.status == HAL.badObjectStatus {
+                continue
+            }
+        }
+        if foundMatchingUID {
+            throw AudioFailure("耳机已断开或不再是蓝牙输出设备")
         }
         throw AudioFailure("耳机设备已移除，停止向旧控制目标发送数据")
     }

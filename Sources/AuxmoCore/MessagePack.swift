@@ -18,7 +18,7 @@ indirect enum MessagePackValue: Equatable, Sendable {
         switch self {
         case .int(let value): Int(exactly: value)
         case .uint(let value): Int(exactly: value)
-        case .double(let value): Int(exactly: value)
+        case .double(let value): value.isFinite ? Int(exactly: value) : nil
         default: nil
         }
     }

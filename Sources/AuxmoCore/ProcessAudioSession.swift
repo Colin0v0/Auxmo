@@ -115,6 +115,30 @@ public struct ApplicationPlaybackRoute: Equatable, Sendable {
         Self(single: output)
     }
 
+    /// 独立物理设备路由：捕获应用在系统输出上的流（或全进程立体声流），分发至任意在线真实硬件集合。
+    public init(independentSource: AudioOutput?, playbackOutputs: [AudioOutput]) throws {
+        guard !playbackOutputs.isEmpty,
+              playbackOutputs.allSatisfy(\.supportsSimultaneousOutput) else {
+            throw AudioFailure("独立设备路由缺少可用的真实输出硬件")
+        }
+        let uids = playbackOutputs.map(\.uid)
+        guard Set(uids).count == uids.count else {
+            throw AudioFailure("独立设备路由包含重复的输出设备")
+        }
+        let sourceUID = independentSource?.uid ?? ""
+        sourceOutputUID = sourceUID
+        tapDeviceUID = independentSource?.isAggregate == true ? "" : sourceUID
+        playbackDeviceUIDs = uids
+        let preferredMain = playbackOutputs.first { $0.transport == kAudioDeviceTransportTypeBuiltIn }
+            ?? playbackOutputs.first { !$0.isBluetooth }
+            ?? playbackOutputs[0]
+        mainDeviceUID = preferredMain.uid
+        isStacked = uids.count > 1
+        var accepted = Set(uids)
+        if !sourceUID.isEmpty { accepted.insert(sourceUID) }
+        acceptedProcessRouteUIDs = accepted
+    }
+
     /// HAL 对“播放到 Auxmo 多设备输出”的进程可能报告公开聚合 UID，
     /// 也可能报告聚合中的真实成员 UID；这两类都属于当前已确认的播放路由。
     public func acceptsProcessRouteUIDs(_ routeUIDs: [String]) -> Bool {
@@ -157,9 +181,14 @@ public struct ApplicationPlaybackRoute: Equatable, Sendable {
 }
 
 /// HAL 进程对象的一次输出路由快照。
-struct ProcessOutputRoute: Equatable {
-    let isRunningOutput: Bool
-    let deviceUIDs: [String]
+public struct ProcessOutputRoute: Equatable, Sendable {
+    public let isRunningOutput: Bool
+    public let deviceUIDs: [String]
+
+    public init(isRunningOutput: Bool, deviceUIDs: [String]) {
+        self.isRunningOutput = isRunningOutput
+        self.deviceUIDs = deviceUIDs
+    }
 }
 
 let auxmoAudioCallback: AudioDeviceIOProc = { _, _, input, _, output, _, context in
@@ -280,6 +309,7 @@ public final class ProcessAudioSession: ApplicationAudioSession {
     public var isActive: Bool { resources.isActive }
     public var isReleased: Bool { resources.isReleased }
     public var isSuspendedForOutputChange: Bool { resources.isSuspended }
+    public let supportsContinuousOutputSwitch = false
     public var resourceSnapshot: AudioSessionResourceSnapshot { resources.snapshot }
 
     public convenience init(group: AudioProcessGroup, output: AudioOutput,

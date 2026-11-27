@@ -202,6 +202,7 @@ struct AppAudioEffectDSP {
         guard wetRamp.current > 0 || wetRamp.target > 0 else {
             if isWet {
                 resetFilterStates()
+                dynamics.reset()
                 limiterGain = 1
                 isWet = false
             }
@@ -214,6 +215,7 @@ struct AppAudioEffectDSP {
         _ = wetRamp.advance()
         if wetRamp.current == 0, wetRamp.target == 0 {
             resetFilterStates()
+            dynamics.reset()
             limiterGain = 1
             isWet = false
             return spatialActive
@@ -252,10 +254,10 @@ struct AppAudioEffectDSP {
         samples = output
     }
 
-    /// 动态和声道处理位于混响之后、最终峰值限制之前。
+    /// 动态和声道处理位于混响之后、最终峰值限制之前；旁路淡出期间跟随总湿声比例平滑归零。
     @inline(__always)
     mutating func processDynamics(_ samples: inout (left: Float, right: Float), channels: Int) {
-        dynamics.process(&samples, channels: channels)
+        dynamics.process(&samples, channels: channels, wetMix: isWet ? wetRamp.current : 0)
     }
 
     /// 前馈峰值 Limiter 在同一帧所有声道之间共享增益，避免左右声道音量像声像一样摆动。

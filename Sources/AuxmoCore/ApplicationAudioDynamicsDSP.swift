@@ -45,7 +45,18 @@ struct AppAudioDynamicsDSP {
         targetBalance = Float(Int((word >> 3) & 255) - 100) / 100
     }
 
-    @inline(__always) mutating func process(_ samples: inout (left: Float, right: Float), channels: Int) {
+    mutating func reset() {
+        envelope = 0
+        compressionGain = 1
+        balance = 0
+        monoMix = 0
+        swapMix = 0
+        makeupGain = 1
+    }
+
+    @inline(__always) mutating func process(_ samples: inout (left: Float, right: Float), channels: Int, wetMix: Float = 1) {
+        let dryLeft = samples.left
+        let dryRight = samples.right
         balance += max(-smoothing, min(smoothing, targetBalance - balance))
         monoMix += max(-smoothing, min(smoothing, targetMono - monoMix))
         swapMix += max(-smoothing, min(smoothing, targetSwap - swapMix))
@@ -73,6 +84,13 @@ struct AppAudioDynamicsDSP {
             samples.right += (mid - samples.right) * monoMix
             samples.left *= 1 - max(0, balance)
             samples.right *= 1 + min(0, balance)
+        }
+        if wetMix < 1 {
+            let clamped = max(0, wetMix)
+            samples.left = dryLeft + (samples.left - dryLeft) * clamped
+            if channels > 1 {
+                samples.right = dryRight + (samples.right - dryRight) * clamped
+            }
         }
     }
 }
