@@ -51,7 +51,7 @@ struct ListeningStatisticsView: View {
     private var devices: [ListeningDeviceSummary] { statistics.deviceSummaries(since: since, until: until, scope: scope) }
     private var applications: [ListeningApplicationSummary] { statistics.applicationSummaries(since: since, until: until, scope: scope) }
     private var dailyPoints: [ListeningDayPoint] {
-        // 按天筛选只更新汇总和明细，原范围柱图保持不变，方便连续比较各天。
+        // 柱状图和其他汇总使用相同的自然日期边界。
         let totals = statistics.dailyTotals(since: chartRange.start, until: chartRange.until, calendar: calendar, scope: scope)
         return days.map { ListeningDayPoint(date: $0, seconds: totals[$0, default: 0]) }
     }
@@ -152,26 +152,47 @@ struct ListeningStatisticsView: View {
     private var periodPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             // 日期控件分两层；窄窗口也不会把日期标签和按钮挤在同一行。
-            HStack(spacing: 12) {
-                Text("\(rangeDateLabel(chartRange.start)) – \(rangeDateLabel(chartRange.end))")
-                    .font(PanelStyle.bodyFont).foregroundStyle(PanelStyle.secondary)
-                Spacer(minLength: 0)
-                Button {
-                    presentation.customStart = chartRange.start
-                    presentation.customEnd = chartRange.end
-                    presentation.customVisibleMonth = chartRange.start
-                    presentation.customSelectingEnd = false
-                    presentation.showsDatePicker = true
-                } label: {
-                    Text(text("自定义…", "Custom…"))
-                        .font(PanelStyle.bodyFont)
+            Text("\(rangeDateLabel(chartRange.start)) – \(rangeDateLabel(chartRange.end))")
+                .font(PanelStyle.bodyFont).foregroundStyle(PanelStyle.secondary)
+            HStack(spacing: 4) {
+                ForEach(ListeningStatisticsPeriod.allCases) { item in
+                    Button {
+                        if item == .custom {
+                            // 打开选择器时保留当前选中项；只有点击“应用”才切换到自定义。
+                            presentation.customStart = chartRange.start
+                            presentation.customEnd = chartRange.end
+                            presentation.customVisibleMonth = chartRange.start
+                            presentation.customSelectingEnd = false
+                            presentation.showsDatePicker = true
+                        } else {
+                            presentation.selectPeriod(item)
+                        }
+                    } label: {
+                        Text(english ? item.englishTitle : item.title)
+                            .font(PanelStyle.bodyFont)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 27)
+                            .contentShape(RoundedRectangle(cornerRadius: 9))
+                    }
+                    .buttonStyle(PanelTabButtonStyle(selected: period == item))
+                    .background {
+                        if period == item {
+                            RoundedRectangle(cornerRadius: 9)
+                                .fill(PanelStyle.tabSelection)
+                                .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(PanelStyle.line, lineWidth: 1) }
+                                .shadow(color: PanelStyle.ink.opacity(0.06), radius: 1, y: 1)
+                        }
+                    }
+                    .accessibilityAddTraits(period == item ? .isSelected : [])
+                    .popover(isPresented: Binding(
+                        get: { item == .custom && presentation.showsDatePicker },
+                        set: { if item == .custom { presentation.showsDatePicker = $0 } }
+                    )) { customDatePicker }
                 }
-                .buttonStyle(PanelButtonStyle(foreground: PanelStyle.secondary))
-                .popover(isPresented: $presentation.showsDatePicker) { customDatePicker }
             }
-            PanelTabs(items: ListeningStatisticsPeriod.allCases.filter { $0 != .custom }, selection: period,
-                      title: { english ? $0.englishTitle : $0.title }, select: presentation.selectPeriod)
-                .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -184,9 +205,11 @@ struct ListeningStatisticsView: View {
                             presentation.shiftCustomMonth(by: -1, calendar: calendar)
                         } label: {
                             Image(systemName: "chevron.left")
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .frame(width: 24, height: 24)
+                        .buttonStyle(CalendarHoverButtonStyle())
+                        .help(text("上个月", "Previous month"))
                         Text(customMonthTitle(presentation.customVisibleMonth))
                             .font(PanelStyle.titleFont)
                             .frame(maxWidth: .infinity)
@@ -198,15 +221,17 @@ struct ListeningStatisticsView: View {
                             presentation.shiftCustomMonth(by: 1, calendar: calendar)
                         } label: {
                             Image(systemName: "chevron.right")
+                                .frame(width: 24, height: 24)
+                                .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-                        .frame(width: 24, height: 24)
+                        .buttonStyle(CalendarHoverButtonStyle())
+                        .help(text("下个月", "Next month"))
                     }
                     HStack(alignment: .top, spacing: 20) {
                         CustomStatisticsCalendarMonth(
                             month: presentation.customVisibleMonth,
                             calendar: calendar,
-                            minimum: calendar.startOfDay(for: statistics.firstRecordedDate() ?? now),
+                            minimum: calendar.date(from: DateComponents(year: 2026, month: 1, day: 1))!,
                             maximum: calendar.startOfDay(for: now),
                             start: presentation.customStart,
                             end: presentation.customEnd,
@@ -215,7 +240,7 @@ struct ListeningStatisticsView: View {
                             month: calendar.date(byAdding: .month, value: 1,
                                                  to: presentation.customVisibleMonth)!,
                             calendar: calendar,
-                            minimum: calendar.startOfDay(for: statistics.firstRecordedDate() ?? now),
+                            minimum: calendar.date(from: DateComponents(year: 2026, month: 1, day: 1))!,
                             maximum: calendar.startOfDay(for: now),
                             start: presentation.customStart,
                             end: presentation.customEnd,
@@ -240,7 +265,8 @@ struct ListeningStatisticsView: View {
             .padding(.vertical, 12)
         }
         .font(PanelStyle.bodyFont)
-        .frame(width: 540)
+        // 固定整个弹窗的尺寸，避免悬停导致系统重新测量弹窗并调整锚点位置。
+        .frame(width: 540, height: 320, alignment: .top)
         .background(PanelStyle.canvas)
         .environment(\.locale, displayLocale)
     }
@@ -273,7 +299,6 @@ struct ListeningStatisticsView: View {
 
     /// 用等长的完整自然日比较，全部范围不显示不合理的上一周期。
     private var comparisonText: String {
-        guard period != .all else { return text("全部记录", "All records") }
         let previousStart = calendar.date(byAdding: .day, value: -selectedDayCount, to: since)!
         let previous = statistics.totalSeconds(since: previousStart, until: since, scope: scope)
         guard previous > 0 else { return text("上一周期暂无记录", "No previous-period data") }
@@ -914,6 +939,7 @@ struct HeatmapCell: Equatable {
 
 /// 双月日期面板：日期选择使用固定 6 行网格，避免切换月份时弹窗尺寸跳动。
 private struct CustomStatisticsCalendarMonth: View {
+    @Environment(\.appLanguage) private var language
     let month: Date
     let calendar: Calendar
     let minimum: Date
@@ -923,24 +949,22 @@ private struct CustomStatisticsCalendarMonth: View {
     let onSelect: (Date) -> Void
 
     private var monthStart: Date { calendar.dateInterval(of: .month, for: month)!.start }
-    private var monthTitle: String {
-        month.formatted(Date.FormatStyle().year().month(.wide).locale(calendar.locale ?? .current))
-    }
     private var firstOffset: Int {
         (calendar.component(.weekday, from: monthStart) + 5) % 7
     }
     private var cells: [Date] {
         (0..<42).map { calendar.date(byAdding: .day, value: $0 - firstOffset, to: monthStart)! }
     }
-    private let weekdays = ["一", "二", "三", "四", "五", "六", "日"]
+    // 星期始终从周一开始，与下方日期网格的偏移计算保持一致。
+    private var weekdays: [String] {
+        language == .english ? ["M", "T", "W", "T", "F", "S", "S"] : ["一", "二", "三", "四", "五", "六", "日"]
+    }
 
     var body: some View {
         VStack(spacing: 6) {
-            Text(monthTitle)
-                .font(PanelStyle.captionFont)
-                .foregroundStyle(PanelStyle.secondary)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(26), spacing: 3), count: 7), spacing: 4) {
-                ForEach(weekdays, id: \.self) { weekday in
+                // 英文缩写中 T 和 S 会重复，使用位置作为稳定标识。
+                ForEach(Array(weekdays.enumerated()), id: \.offset) { _, weekday in
                     Text(weekday)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(PanelStyle.secondary)
@@ -949,29 +973,62 @@ private struct CustomStatisticsCalendarMonth: View {
                 ForEach(cells, id: \.self) { day in
                     let currentMonth = calendar.component(.month, from: day) == calendar.component(.month, from: month)
                     let disabled = !currentMonth || day < minimum || day > maximum
-                    let inRange = day >= min(start, end) && day <= max(start, end)
-                    let selected = calendar.isDate(day, inSameDayAs: start) || calendar.isDate(day, inSameDayAs: end)
+                    // 相邻月份的占位日期不重复绘制区间或选中端点。
+                    let inRange = currentMonth && day >= min(start, end) && day <= max(start, end)
+                    let selected = currentMonth && (calendar.isDate(day, inSameDayAs: start) || calendar.isDate(day, inSameDayAs: end))
                     Button { if !disabled { onSelect(day) } } label: {
                         Text("\(calendar.component(.day, from: day))")
                             .font(.system(size: 11, weight: selected ? .semibold : .regular))
-                            .foregroundStyle(disabled ? PanelStyle.secondary.opacity(0.28) : PanelStyle.ink)
+                            .foregroundStyle(selected ? PanelStyle.prominentInk : (disabled ? PanelStyle.secondary.opacity(0.28) : PanelStyle.ink))
                             .frame(width: 26, height: 26)
                             .background {
                                 if selected {
-                                    Circle()
-                                        .fill(PanelStyle.tabSelection)
-                                        .overlay {
-                                            Circle().strokeBorder(PanelStyle.ink.opacity(0.20), lineWidth: 1)
-                                        }
+                                    // 起止端点使用应用的深浅自适应反白颜色。
+                                    Circle().fill(PanelStyle.prominentFill)
                                 } else if inRange {
                                     RoundedRectangle(cornerRadius: 5).fill(PanelStyle.surface)
                                 }
                             }
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(CalendarHoverButtonStyle(circular: true, selected: selected))
                     .disabled(disabled)
                 }
             }
+        }
+    }
+}
+
+/// 日历按钮只叠加轻微的中性色悬停效果，不改变日期网格布局或选中状态。
+private struct CalendarHoverButtonStyle: ButtonStyle {
+    var circular = false
+    var selected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        CalendarHoverButtonBody(configuration: configuration, circular: circular, selected: selected)
+    }
+
+    private struct CalendarHoverButtonBody: View {
+        let configuration: ButtonStyle.Configuration
+        let circular: Bool
+        let selected: Bool
+        @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @StateObject private var hover = PanelRowHoverState()
+
+        var body: some View {
+            configuration.label
+                .background {
+                    // 悬停前后保留同一个固定尺寸的背景，避免弹窗重新测量导致跳动；
+                    // 背景放在图标和日期文字后面，不会把内容遮住。
+                    if circular {
+                        Circle().fill(PanelStyle.ink.opacity(isEnabled && !selected && (hover.active || configuration.isPressed) ? 0.08 : 0))
+                    } else {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(PanelStyle.controlHover.opacity(isEnabled && (hover.active || configuration.isPressed) ? 1 : 0))
+                    }
+                }
+                .onHover { hover.active = $0 }
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: hover.active)
         }
     }
 }

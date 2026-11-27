@@ -11,80 +11,73 @@ struct ListeningDailyAverages {
     }
 }
 
-/// 范围包含今天，从本地午夜开始，保证汇总、柱状图和热力图使用同一条日期边界。
-enum ListeningStatisticsPeriod: Int, CaseIterable, Identifiable {
-    case today = 1
-    case week = 7
-    case month = 30
-    case quarter = 90
-    case halfYear = 180
-    case year = 365
-    case all = 0
-    case custom = -1
+/// 快捷范围按用户本地日历计算；一周固定从周一开始，与统计热力图一致。
+enum ListeningStatisticsPeriod: CaseIterable, Identifiable {
+    case today, yesterday, week, lastWeek, month, year, custom
 
-    var id: Int { rawValue }
+    var id: Self { self }
     var title: String {
         switch self {
         case .today: return "今天"
+        case .yesterday: return "昨天"
+        case .week: return "本周"
+        case .lastWeek: return "上周"
+        case .month: return "本月"
+        case .year: return "今年"
         case .custom: return "自定义"
-        case .year: return "一年"
-        case .all: return "全部"
-        default: return "\(rawValue) 天"
         }
     }
 
     var englishTitle: String {
         switch self {
         case .today: return "Today"
+        case .yesterday: return "Yesterday"
+        case .week: return "This Week"
+        case .lastWeek: return "Last Week"
+        case .month: return "This Month"
+        case .year: return "This Year"
         case .custom: return "Custom"
-        case .week: return "7d"
-        case .month: return "30d"
-        case .quarter: return "90d"
-        case .halfYear: return "180d"
-        case .year: return "1y"
-        case .all: return "All"
         }
     }
 
     func days(endingAt date: Date, calendar: Calendar, firstRecord: Date? = nil, customRange: ClosedRange<Date>? = nil) -> [Date] {
-        if self == .custom {
-            guard let customRange else { preconditionFailure("自定义日期范围尚未设置") }
-            return ListeningDateRange(start: customRange.lowerBound, end: customRange.upperBound,
-                                      now: date, calendar: calendar).days(calendar: calendar)
-        }
         let today = calendar.startOfDay(for: date)
-        // 全部范围从最早记录当天开始；没有历史记录时显示今天。
-        let count: Int
-        if self == .all, let firstRecord, firstRecord < today {
-            count = calendar.dateComponents([.day], from: calendar.startOfDay(for: firstRecord), to: today).day! + 1
-        } else {
-            count = self == .all ? 1 : rawValue
+        let start: Date
+        let end: Date
+        switch self {
+        case .today:
+            start = today; end = today
+        case .yesterday:
+            start = calendar.date(byAdding: .day, value: -1, to: today)!; end = start
+        case .week, .lastWeek:
+            let mondayOffset = (calendar.component(.weekday, from: today) + 5) % 7
+            let thisMonday = calendar.date(byAdding: .day, value: -mondayOffset, to: today)!
+            if self == .week {
+                start = thisMonday; end = today
+            } else {
+                start = calendar.date(byAdding: .day, value: -7, to: thisMonday)!
+                end = calendar.date(byAdding: .day, value: -1, to: thisMonday)!
+            }
+        case .month:
+            start = calendar.dateInterval(of: .month, for: today)!.start; end = today
+        case .year:
+            start = calendar.dateInterval(of: .year, for: today)!.start; end = today
+        case .custom:
+            guard let customRange else { preconditionFailure("自定义日期范围尚未设置") }
+            start = customRange.lowerBound; end = customRange.upperBound
         }
-        return (0..<count).map {
-            calendar.date(byAdding: .day, value: $0 - count + 1, to: today)!
-        }
+        return ListeningDateRange(start: start, end: end, now: date, calendar: calendar).days(calendar: calendar)
     }
 
-    /// 与图表按天分桶的柱形中心一致；夏令时切换日按真实日长度取中点。
+    /// 刻度按自然日中心排列；夏令时日期使用真实的日长度。
     func dayCenter(_ date: Date, calendar: Calendar) -> Date {
         let interval = calendar.dateInterval(of: .day, for: date)!
         return interval.start.addingTimeInterval(interval.duration / 2)
     }
 
     func axisDates(for days: [Date], calendar: Calendar) -> [Date] {
-        stride(from: 0, to: days.count, by: max(axisStride, (days.count + 6) / 7)).map {
+        stride(from: 0, to: days.count, by: max(1, (days.count + 6) / 7)).map {
             dayCenter(days[$0], calendar: calendar)
-        }
-    }
-
-    var axisStride: Int {
-        switch self {
-        case .today, .custom, .week: return 1
-        case .month: return 7
-        case .quarter: return 21
-        case .halfYear: return 30
-        case .year: return 60
-        case .all: return 1
         }
     }
 }

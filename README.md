@@ -63,7 +63,7 @@ Use **Mute All** at the top-right of the main panel to temporarily mute app audi
 
 ## See your listening habits
 
-Open the detail window from the menu bar and choose **Insights → Statistics** to see listening totals, daily trends, device and app rankings, listening hours, and session details. Choose 7, 30, 90, or 180 days, one year, or all records; select a device or app to see its own details and related rankings.
+Open the detail window from the menu bar and choose **Insights → Statistics** to see listening totals, daily trends, device and app rankings, listening hours, and session details. Choose today, yesterday, this week, last week, this month, this year, or a custom range; select a device or app to see its own details and related rankings.
 
 <p align="center">
   <a href="docs/images/statistics-en.png"><img src="docs/images/statistics-en.png" width="820" alt="Auxmo listening statistics preview with time range, listening totals, daily chart, output devices, app rankings, and listening-hours heatmap" /></a>
