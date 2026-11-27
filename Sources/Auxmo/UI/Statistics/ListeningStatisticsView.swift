@@ -43,6 +43,8 @@ struct ListeningStatisticsView: View {
     private var chartRange: ListeningDateRange {
         ListeningDateRange(start: days[0], end: days[days.count - 1], now: now, calendar: calendar)
     }
+    private var displayStart: Date { days[0] }
+    private var displayEnd: Date { days[days.count - 1] }
     private var since: Date { chartRange.start }
     private var until: Date { chartRange.until }
     private var selectedDayCount: Int { days.count }
@@ -152,7 +154,7 @@ struct ListeningStatisticsView: View {
     private var periodPicker: some View {
         VStack(alignment: .leading, spacing: 10) {
             // 日期控件分两层；窄窗口也不会把日期标签和按钮挤在同一行。
-            Text("\(rangeDateLabel(chartRange.start)) – \(rangeDateLabel(chartRange.end))")
+            Text("\(rangeDateLabel(displayStart)) – \(rangeDateLabel(displayEnd))")
                 .font(PanelStyle.bodyFont).foregroundStyle(PanelStyle.secondary)
             HStack(spacing: 4) {
                 ForEach(ListeningStatisticsPeriod.allCases) { item in
@@ -810,7 +812,7 @@ struct ListeningStatisticsView: View {
 
     /// 窄面板缩短日期格式，给时间范围控件保留完整的点击宽度。
     private func rangeDateLabel(_ date: Date) -> String {
-        calendar.component(.year, from: since) != calendar.component(.year, from: days[days.count - 1])
+        calendar.component(.year, from: displayStart) != calendar.component(.year, from: displayEnd)
             ? date.formatted(Date.FormatStyle().year().month(.defaultDigits).day().locale(displayLocale))
             : (compact ? date.formatted(Date.FormatStyle().month(.defaultDigits).day().locale(displayLocale)) : dateLabel(date))
     }
@@ -829,7 +831,7 @@ struct ListeningStatisticsView: View {
 /// 交互状态随视图实例保存；与音频采样、持久化记录保持独立。
 @MainActor
 final class ListeningStatisticsPresentation: ObservableObject {
-    @Published private(set) var period: ListeningStatisticsPeriod = .month
+    @Published private(set) var period: ListeningStatisticsPeriod = .week
     @Published var hoveredChartDate: Date?
     @Published var customStart = Calendar.current.startOfDay(for: Date())
     @Published var customEnd = Calendar.current.startOfDay(for: Date())

@@ -17,18 +17,21 @@ struct ListeningStatisticsPeriodTests {
     @Test func statisticsNavigationAndRangesHaveEnglishLabels() {
         #expect(L10n.text("观测", language: .english) == "Insights")
         #expect(L10n.text("统计", language: .english) == "Statistics")
-        #expect(ListeningStatisticsPeriod.allCases.map(\.englishTitle) == ["Today", "Yesterday", "This Week", "Last Week", "This Month", "This Year", "Custom"])
+        #expect(ListeningStatisticsPeriod.allCases.map(\.title) == ["本周", "上周", "本月", "上月", "今年", "自定义"])
+        #expect(ListeningStatisticsPeriod.allCases.map(\.englishTitle) ==
+                ["This Week", "Last Week", "This Month", "Last Month", "This Year", "Custom"])
     }
 
     @Test @MainActor func changingRangeClearsSelectionAndExpandedRankings() {
         let presentation = ListeningStatisticsPresentation()
+        #expect(presentation.period == .week)
         presentation.hoveredChartDate = Date()
         presentation.allDevices = true
         presentation.allApplications = true
 
-        presentation.selectPeriod(.week)
+        presentation.selectPeriod(.month)
 
-        #expect(presentation.period == .week)
+        #expect(presentation.period == .month)
         #expect(presentation.hoveredChartDate == nil)
         #expect(!presentation.allDevices)
         #expect(!presentation.allApplications)
@@ -41,13 +44,14 @@ struct ListeningStatisticsPeriodTests {
         func day(_ month: Int, _ day: Int) -> Date {
             calendar.date(from: DateComponents(year: 2026, month: month, day: day))!
         }
-        #expect(ListeningStatisticsPeriod.today.days(endingAt: now, calendar: calendar) == [day(11, 25)])
-        #expect(ListeningStatisticsPeriod.yesterday.days(endingAt: now, calendar: calendar) == [day(11, 24)])
         let week = ListeningStatisticsPeriod.week.days(endingAt: now, calendar: calendar)
-        #expect(week.first == (day(11, 23)) && week.last == (day(11, 25)))
+        #expect(week.count == 7 && week.first == (day(11, 23)) && week.last == (day(11, 29)))
         let lastWeek = ListeningStatisticsPeriod.lastWeek.days(endingAt: now, calendar: calendar)
         #expect(lastWeek.count == 7 && lastWeek.first == (day(11, 16)) && lastWeek.last == (day(11, 22)))
         #expect(ListeningStatisticsPeriod.month.days(endingAt: now, calendar: calendar).first == (day(11, 1)))
+        let lastMonth = ListeningStatisticsPeriod.lastMonth.days(endingAt: now, calendar: calendar)
+        #expect(lastMonth.first == day(10, 1))
+        #expect(lastMonth.last == day(10, 31))
         #expect(ListeningStatisticsPeriod.year.days(endingAt: now, calendar: calendar).first == (day(1, 1)))
     }
 
