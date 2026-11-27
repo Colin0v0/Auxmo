@@ -18,9 +18,9 @@
   <a href="docs/CHANGELOG.md">更新记录</a>
 </p>
 <p align="center">
-  <a href="docs/images/hero-zh.png"><img src="docs/images/hero-zh.png?v=0.4.1" width="440" alt="Auxmo 主面板：扬声器、耳机、多设备输出，以及 Chrome 和 Music 的独立音量与路由按钮" /></a>
+  <a href="docs/images/hero-zh.png"><img src="docs/images/hero-zh.png?v=0.4.7" width="440" alt="Auxmo 主面板：扬声器、耳机、多设备输出，以及 Chrome 和 Music 的独立音量与路由按钮" /></a>
 </p>
-<p align="center"><sub>界面预览由 Auxmo 0.4.1 使用示例设备和应用数据渲染，并非实时音频会话。<a href="docs/images/README.md">图片来源</a>。</sub></p>
+<p align="center"><sub>界面预览由 Auxmo 0.4.7 使用示例设备和应用数据渲染，并非实时音频会话。<a href="docs/images/README.md">图片来源</a>。</sub></p>
 
 > 免费、开源，无需账号。当前下载包使用 ad-hoc 签名，**尚未经过 Apple 公证**，macOS 可能阻止启动。[分发与权限说明](docs/TRUST_AND_TESTING.md#中文说明)。
 
@@ -39,24 +39,24 @@
 <td width="50%" valign="top">
 <h3>每个 App，单独调节</h3>
 <p>给 Chrome 和 Music 设置不同音量，单独静音；面板打开时可查看实时电平。</p>
-<a href="docs/images/mixer-zh.png"><img src="docs/images/mixer-zh.png?v=0.4.1" width="440" alt="Chrome 与 Music 的独立音量滑杆、音效和路由入口" /></a>
+<a href="docs/images/mixer-zh.png"><img src="docs/images/mixer-zh.png?v=0.4.7" width="440" alt="Chrome 与 Music 的独立音量滑杆、音效和路由入口" /></a>
 </td>
 <td width="50%" valign="top">
 <h3>一个输出组，多种去向</h3>
 <p>把扬声器和耳机加入同一组，保留各设备的独立控制，再为每个 App 选择组内输出。</p>
-<a href="docs/images/outputs-zh.png"><img src="docs/images/outputs-zh.png?v=0.4.1" width="440" alt="多设备输出编辑器中同时勾选 MacBook 扬声器与 AirPods Pro" /></a>
+<a href="docs/images/outputs-zh.png"><img src="docs/images/outputs-zh.png?v=0.4.7" width="440" alt="多设备输出编辑器中同时勾选 MacBook 扬声器与 AirPods Pro" /></a>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <h3>按 App 调整听感</h3>
 <p>十段 EQ、空间效果、音量均衡与声道控制。保存自己的预设，也能随时对比原声。</p>
-<a href="docs/images/effects-zh.png"><img src="docs/images/effects-zh.png?v=0.4.1" width="440" alt="Music 音效窗口：十段均衡器、频响预览与对比原声按钮" /></a>
+<a href="docs/images/effects-zh.png"><img src="docs/images/effects-zh.png?v=0.4.7" width="440" alt="Music 音效窗口：十段均衡器、频响预览与对比原声按钮" /></a>
 </td>
 <td width="50%" valign="top">
 <h3>耳机控制，抬手就到</h3>
 <p>查看电量、切换当前型号公开的噪声模式。可用控制项取决于具体设备和固件。</p>
-<a href="docs/images/headphones-zh.png"><img src="docs/images/headphones-zh.png?v=0.4.1" width="440" alt="耳机控制示例：左右耳与充电盒电量、降噪、通透和自适应模式" /></a>
+<a href="docs/images/headphones-zh.png"><img src="docs/images/headphones-zh.png?v=0.4.7" width="440" alt="耳机控制示例：左右耳与充电盒电量、降噪、通透和自适应模式" /></a>
 </td>
 </tr>
 </table>
@@ -66,9 +66,9 @@
 从菜单栏打开详情，选择 **观测 → 统计**，查看累计时长、每日趋势、设备与 App 排行、使用时段和会话明细。可切换今天、昨天、本周、上周、本月、今年或自定义日期范围；点击设备或 App 可以查看对应详情和关联排行。
 
 <p align="center">
-  <a href="docs/images/statistics-zh.png"><img src="docs/images/statistics-zh.png" width="820" alt="Auxmo 聆听统计预览：时间范围、累计时长、每日柱状图、输出设备、应用排行与使用时段热力图" /></a>
+  <a href="docs/images/statistics-zh.png"><img src="docs/images/statistics-zh.png?v=0.4.7" width="820" alt="Auxmo 聆听统计预览：时间范围、累计时长、每日柱状图、输出设备、应用排行与使用时段热力图" /></a>
 </p>
-<p align="center"><sub>统计页预览使用 0.4.5 开发版和示例数据，不是实际用户记录。<a href="docs/images/README.md">图片来源</a>。</sub></p>
+<p align="center"><sub>统计页预览使用 0.4.7 版本和示例数据，不是实际用户记录。<a href="docs/images/README.md">图片来源</a>。</sub></p>
 
 统计只记录 Auxmo 在 Mac 上运行时观察到的音频活动，数据保存在本机；它不是完整的屏幕使用时长，也不读取 iPhone 健康数据。应用与设备关系依据可确认的输出路由记录；历史记录、采样间隔和会话划分仍有估算误差。可在 **设置 → 统计数据** 查看记录起始日期、导出 JSON 或确认后清除记录。
 
