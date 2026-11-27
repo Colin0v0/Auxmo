@@ -3,6 +3,7 @@ import AuxmoCore
 
 struct ApplicationVolumeSection: View {
     @ObservedObject var model: AppModel
+    @ObservedObject private var settings = AppSettings.shared
     /// 只有当前可见的设备分区订阅实时电平，隐藏页仍保留滚动位置但不做 30Hz 重绘。
     let metersVisible: Bool
     /// 应用路由只在输出页、且多设备组已确认时显示，麦克风页不提供输出路由入口。
@@ -92,6 +93,7 @@ struct ApplicationVolumeSection: View {
                             audioRoute: model.applicationAudioRoute(for: app.id),
                             routePaused: model.applicationRoutePlaybackPaused(for: app.id),
                             routeOutputs: model.availableApplicationRouteOutputs,
+                            hiddenOutputUIDs: settings.hiddenOutputs.map { Set($0.keys) },
                             globallyMuted: model.globalSafetyMuteEnabled,
                             setAudioRoute: { model.setApplicationAudioRoute($0, for: app.id) },
                             toggleRouteOutput: { model.toggleApplicationAudioRouteDevice($0, for: app.id) })

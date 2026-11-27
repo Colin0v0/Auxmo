@@ -7,6 +7,47 @@ import AuxmoCore
 
 @MainActor
 struct AppSettingsTests {
+    @Test func hiddenOutputsPersistByUIDAndCanBeRestoredOffline() throws {
+        let suite = "Auxmo.HiddenOutputs.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        settings.hideOutput(uid: "display-a", name: "Mi Monitor")
+        settings.hideOutput(uid: "display-b", name: "Mi Monitor")
+        let reopened = AppSettings(defaults: defaults)
+        #expect(reopened.hiddenOutputs?.count == 2)
+        reopened.restoreOutput(uid: "display-a")
+        #expect(AppSettings(defaults: defaults).hiddenOutputs == ["display-b": "Mi Monitor"])
+    }
+
+    @Test func hiddenInputsAreIndependentFromOutputsAndPersist() throws {
+        let suite = "Auxmo.HiddenInputs.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        settings.hideInput(uid: "shared", name: "Headphone Mic")
+        settings.hideOutput(uid: "shared", name: "Headphones")
+        let reopened = AppSettings(defaults: defaults)
+        #expect(reopened.hiddenInputs == ["shared": "Headphone Mic"])
+        #expect(reopened.hiddenOutputs == ["shared": "Headphones"])
+        reopened.restoreInput(uid: "shared")
+        let restored = AppSettings(defaults: defaults)
+        #expect(restored.hiddenInputs == [:])
+        #expect(restored.hiddenOutputs == ["shared": "Headphones"])
+    }
+
+    @Test func malformedHiddenOutputsAreNotOverwritten() throws {
+        let suite = "Auxmo.HiddenOutputs.Invalid.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let key = "com.colin0v0.auxmo.settings.hiddenOutputs"
+        defaults.set("invalid", forKey: key)
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.hiddenOutputs == nil)
+        settings.hideOutput(uid: "x", name: "Device")
+        #expect(defaults.string(forKey: key) == "invalid")
+    }
+
     /// 全新安装不应主动显示耳机页或多设备输出入口，用户需要在设置里明确开启。
     @Test func freshInstallKeepsOptionalFeaturesOff() throws {
         let suite = "Auxmo.AppSettingsDefaults.\(UUID().uuidString)"
@@ -89,6 +130,11 @@ struct AppSettingsTests {
         #expect(L10n.text("未发现新版本", language: .english) == "No Updates Available")
         #expect(L10n.text("开启", language: .english) == "On")
         #expect(L10n.text("关闭", language: .english) == "Off")
+        #expect(L10n.text("使用中的设备不能隐藏", language: .english)
+                == "Devices in use cannot be hidden")
+        #expect(L10n.format("无法确认当前输出设备：%@", language: .english,
+                           arguments: ["read failed"])
+                == "Could not confirm the current output device: read failed")
         #expect(L10n.text("检查失败，重试", language: .english) == "Check Failed, Retry")
         #expect(L10n.format("发现新版本 %@", language: .english, arguments: ["0.1.11"])
                 == "Version 0.1.11 is available")

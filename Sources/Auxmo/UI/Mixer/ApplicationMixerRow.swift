@@ -15,6 +15,7 @@ struct ApplicationMixerRow: View {
     let audioRoute: AppAudioRoute?
     let routePaused: Bool
     let routeOutputs: [AudioOutput]
+    let hiddenOutputUIDs: Set<String>?
     let globallyMuted: Bool
     let toggleMute: () -> Void
     let setGain: (Float) -> Void
@@ -43,6 +44,7 @@ struct ApplicationMixerRow: View {
          routingEnabled: Bool = false, audioRoute: AppAudioRoute? = .allOutputs,
          routePaused: Bool = false,
          routeOutputs: [AudioOutput] = [],
+         hiddenOutputUIDs: Set<String>? = [],
          globallyMuted: Bool = false,
          setAudioRoute: @escaping (AppAudioRoute) -> Void = { _ in },
          toggleRouteOutput: @escaping (String) -> Void = { _ in },
@@ -59,6 +61,7 @@ struct ApplicationMixerRow: View {
         self.audioRoute = audioRoute
         self.routePaused = routePaused
         self.routeOutputs = routeOutputs
+        self.hiddenOutputUIDs = hiddenOutputUIDs
         self.globallyMuted = globallyMuted
         self.toggleMute = toggleMute
         self.setGain = setGain
@@ -285,6 +288,10 @@ struct ApplicationMixerRow: View {
             setAudioRoute(.allOutputs)
         }
         allOutputs.state = audioRoute == .allOutputs ? .on : .off
+        // “全部输出”可能包含隐藏成员，不能绕过隐藏状态重新选中它们。
+        allOutputs.isEnabled = hiddenOutputUIDs.map { hidden in
+            Set(routeOutputs.map(\.uid)).isDisjoint(with: hidden)
+        } == true
         menu.addItem(allOutputs)
 
         let activeUIDs = Set(routeOutputs.map(\.uid))
@@ -296,14 +303,17 @@ struct ApplicationMixerRow: View {
             menu.addItem(.separator())
         }
         for output in routeOutputs {
-            let item = PanelActionMenuItem(title: output.name) {
+            // 仍显示既有路由状态，但已隐藏设备不可从应用菜单重新选择。
+            let hidden = hiddenOutputUIDs?.contains(output.uid) == true
+            let title = hidden ? "\(output.name) · \(L10n.text("已隐藏", language: language))" : output.name
+            let item = PanelActionMenuItem(title: title) {
                 toggleRouteOutput(output.uid)
             }
             let isSelected = selectedActiveUIDs.contains(output.uid)
             item.state = isSelected ? .on : .off
             // 最后一个保存的目标不能取消；有离线目标时，用户可以主动取消唯一在线目标而暂停。
             let selectedCount = audioRoute.isCustom ? audioRoute.customDeviceUIDs.count : selectedActiveUIDs.count
-            item.isEnabled = routingEnabled && !(isSelected && selectedCount == 1)
+            item.isEnabled = hiddenOutputUIDs != nil && !hidden && routingEnabled && !(isSelected && selectedCount == 1)
             menu.addItem(item)
         }
 

@@ -11,12 +11,17 @@ struct OutputDevicesSection: View {
     /// 多设备输出草稿已有成员时，真实设备行必须熄灯，由下方组合入口独占选中状态。
     var selectionSuppressed = false
     var hiddenUID: String? = nil
+    var hiddenOutputUIDs: Set<String> = []
+    var activeOutputUIDs: Set<String> = []
+    var outputSwitchInProgress = false
+    var hideOutput: ((AudioOutput) -> Void)? = nil
     @Environment(\.appLanguage) private var language
 
     var body: some View {
         VStack(spacing: 0) {
             // 所有聚合输出都收进唯一的“多设备输出”入口，列表里只保留真实硬件。
-            ForEach(Self.visibleOutputs(audio.outputs, hiddenUID: hiddenUID)) { output in
+            ForEach(Self.visibleOutputs(audio.outputs, hiddenUID: hiddenUID, hiddenOutputUIDs: hiddenOutputUIDs,
+                                        activeOutputUIDs: activeOutputUIDs, selectedID: audio.selectedID)) { output in
                 if let control = audio.controls[output.id] {
                     AudioDeviceRow(device: output, control: control,
                                     selected: Self.isSelected(output: output, selectedID: audio.selectedID,
@@ -27,6 +32,14 @@ struct OutputDevicesSection: View {
                                     selectionHint: simultaneousUIDs.isEmpty ? nil
                                         : L10n.format("结束多设备输出，仅使用“%@”播放",
                                                       language: language, arguments: [output.name]))
+                    .contextMenu {
+                        if let hideOutput {
+                            Button(L10n.text("隐藏设备", language: language)) { hideOutput(output) }
+                                .disabled(outputSwitchInProgress || Self.isInUse(output: output,
+                                                                                 selectedID: audio.selectedID,
+                                                                                 activeOutputUIDs: activeOutputUIDs))
+                        }
+                    }
                 } else {
                     PanelError(text: L10n.format("%@ 尚未读取设备控制状态", language: language,
                                                  arguments: [output.name])).padding(12)
@@ -36,12 +49,19 @@ struct OutputDevicesSection: View {
     }
 
     /// 普通列表只呈现真实硬件；系统、第三方和 Auxmo 聚合设备都不再重复成行。
-    static func visibleOutputs(_ outputs: [AudioOutput], hiddenUID: String?) -> [AudioOutput] {
-        outputs.filter { !$0.isAggregate && $0.uid != hiddenUID }.sorted { lhs, rhs in
+    static func visibleOutputs(_ outputs: [AudioOutput], hiddenUID: String?, hiddenOutputUIDs: Set<String> = [],
+                               activeOutputUIDs: Set<String> = [], selectedID: UInt32? = nil) -> [AudioOutput] {
+        outputs.filter { !$0.isAggregate && $0.uid != hiddenUID &&
+            (!hiddenOutputUIDs.contains($0.uid) || $0.id == selectedID || activeOutputUIDs.contains($0.uid)) }.sorted { lhs, rhs in
             let nameOrder = lhs.name.localizedStandardCompare(rhs.name)
             if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
             return lhs.uid < rhs.uid
         }
+    }
+
+    /// 默认输出或多设备输出的成员都属于使用中，不能被隐藏。
+    static func isInUse(output: AudioOutput, selectedID: UInt32, activeOutputUIDs: Set<String>) -> Bool {
+        output.id == selectedID || activeOutputUIDs.contains(output.uid)
     }
 
     /// 多设备输出启用时，选中状态只属于下方聚合行；成员设备仍可单独调音量，但不是当前默认输出。

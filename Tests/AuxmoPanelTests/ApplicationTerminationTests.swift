@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Testing
+import AuxmoCore
 @testable import Auxmo
 
 @MainActor
@@ -86,6 +87,22 @@ struct ApplicationTerminationTests {
         hardware.compositions.removeAll()
         #expect(model.shutdownStep() == .complete)
         #expect(model.shutdownStep() == .complete)
+    }
+
+    @Test func shutdownSweepsAnOrphanAggregateThatWasNeverPresentedInTheUI() throws {
+        let hardware = RoutingTestHardware()
+        let plan = try MultiOutputPlan(outputs: Array(hardware.outputs.prefix(2)),
+                                       sampleRates: ["speaker": 48_000, "headphone": 48_000])
+        hardware.compositions[88] = plan.description(uid: "com.colin0v0.auxmo.multi.orphan")
+        hardware.selected = 2
+        hardware.systemSelected = 1
+        let model = AppModel(outputHardware: hardware.hardware, startsMonitoring: false)
+
+        // 不先调用 refresh，模拟残留设备尚未进入 pendingCleanup 就被用户直接退出。
+        #expect(model.shutdownStep() == .complete)
+        #expect(hardware.destroyed == [88])
+        #expect(hardware.selected == 2 && hardware.systemSelected == 1)
+        #expect(hardware.selections.isEmpty)
     }
 
     @Test func failedSessionCleanupStaysOwnedUntilRetryAndCancelResumesObservation() throws {

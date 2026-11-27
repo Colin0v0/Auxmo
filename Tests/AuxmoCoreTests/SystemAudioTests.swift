@@ -356,5 +356,5 @@ struct SystemAudioTests {
         #expect(!SystemAudio.activeAggregateRouteContains("other", composition: composition as CFDictionary, activeUIDs: ["other"]))
     }
 
-    @Test func versionIsDefined() { #expect(AuxmoVersion.current == "0.4.7") }
+    @Test func versionIsDefined() { #expect(AuxmoVersion.current == "0.4.8") }
 }
