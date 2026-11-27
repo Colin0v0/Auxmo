@@ -171,8 +171,8 @@ struct AuxmoUpdateBadge: View {
                 .offset(x: 5, y: -5)
             }
         }
-        // 叉号超出胶囊时不能被裁切；只有可跳过状态才占用视觉空间。
-        .padding(.top, canSkip ? 5 : 0)
+        // 叉号超出胶囊时不能被裁切；上下补同样的空间，胶囊视觉中心仍与右侧图标对齐。
+        .padding(.vertical, canSkip ? 5 : 0)
         .padding(.trailing, canSkip ? 5 : 0)
         // 外层范围覆盖露出的叉号，鼠标从胶囊移到叉号时不会提前隐藏。
         .contentShape(Rectangle())
