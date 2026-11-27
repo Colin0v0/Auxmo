@@ -48,11 +48,13 @@ struct ListeningStatisticsPeriodTests {
         #expect(week.count == 7 && week.first == (day(11, 23)) && week.last == (day(11, 29)))
         let lastWeek = ListeningStatisticsPeriod.lastWeek.days(endingAt: now, calendar: calendar)
         #expect(lastWeek.count == 7 && lastWeek.first == (day(11, 16)) && lastWeek.last == (day(11, 22)))
-        #expect(ListeningStatisticsPeriod.month.days(endingAt: now, calendar: calendar).first == (day(11, 1)))
+        let month = ListeningStatisticsPeriod.month.days(endingAt: now, calendar: calendar)
+        #expect(month.count == 30 && month.first == day(11, 1) && month.last == day(11, 30))
         let lastMonth = ListeningStatisticsPeriod.lastMonth.days(endingAt: now, calendar: calendar)
         #expect(lastMonth.first == day(10, 1))
         #expect(lastMonth.last == day(10, 31))
-        #expect(ListeningStatisticsPeriod.year.days(endingAt: now, calendar: calendar).first == (day(1, 1)))
+        let year = ListeningStatisticsPeriod.year.days(endingAt: now, calendar: calendar)
+        #expect(year.count == 365 && year.first == day(1, 1) && year.last == day(12, 31))
     }
 
     @Test func customRangeIncludesBothCalendarEndpoints() throws {

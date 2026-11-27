@@ -11,7 +11,7 @@ struct ListeningDailyAverages {
     }
 }
 
-/// 快捷范围按用户本地日历计算；一周固定从周一开始，与统计热力图一致。
+/// 快捷范围按用户本地日历计算；固定周期展示完整自然区间，自定义范围不延伸到未来。
 enum ListeningStatisticsPeriod: CaseIterable, Identifiable {
     case week, lastWeek, month, lastMonth, year, custom
 
@@ -47,7 +47,6 @@ enum ListeningStatisticsPeriod: CaseIterable, Identifiable {
             let mondayOffset = (calendar.component(.weekday, from: today) + 5) % 7
             let thisMonday = calendar.date(byAdding: .day, value: -mondayOffset, to: today)!
             start = thisMonday
-            // 本周按完整自然周展示，未来日期保留为零值柱，保证七天刻度始终完整。
             end = calendar.date(byAdding: .day, value: 6, to: thisMonday)!
         case .lastWeek:
             let mondayOffset = (calendar.component(.weekday, from: today) + 5) % 7
@@ -55,22 +54,28 @@ enum ListeningStatisticsPeriod: CaseIterable, Identifiable {
             start = calendar.date(byAdding: .day, value: -7, to: thisMonday)!
             end = calendar.date(byAdding: .day, value: -1, to: thisMonday)!
         case .month:
-            start = calendar.dateInterval(of: .month, for: today)!.start; end = today
+            let interval = calendar.dateInterval(of: .month, for: today)!
+            start = interval.start
+            end = calendar.date(byAdding: .day, value: -1, to: interval.end)!
         case .lastMonth:
             // 上月范围从原月第一天到本月第一天前一日，按本地日历跨月计算。
             let thisMonthStart = calendar.dateInterval(of: .month, for: today)!.start
             start = calendar.date(byAdding: .month, value: -1, to: thisMonthStart)!
             end = calendar.date(byAdding: .day, value: -1, to: thisMonthStart)!
         case .year:
-            start = calendar.dateInterval(of: .year, for: today)!.start; end = today
+            let interval = calendar.dateInterval(of: .year, for: today)!
+            start = interval.start
+            end = calendar.date(byAdding: .day, value: -1, to: interval.end)!
         case .custom:
             guard let customRange else { preconditionFailure("自定义日期范围尚未设置") }
             start = customRange.lowerBound; end = customRange.upperBound
         }
-        if self == .week {
-            return (0...6).map { calendar.date(byAdding: .day, value: $0, to: start)! }
+        if self == .custom {
+            return ListeningDateRange(start: start, end: end, now: date, calendar: calendar).days(calendar: calendar)
         }
-        return ListeningDateRange(start: start, end: end, now: date, calendar: calendar).days(calendar: calendar)
+        // 快捷周期保留完整刻度，尚未到来的日期由统计数据自然填成零值。
+        let count = calendar.dateComponents([.day], from: start, to: end).day! + 1
+        return (0..<count).map { calendar.date(byAdding: .day, value: $0, to: start)! }
     }
 
     /// 刻度按自然日中心排列；夏令时日期使用真实的日长度。
