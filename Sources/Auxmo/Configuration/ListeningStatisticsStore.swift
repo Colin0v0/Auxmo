@@ -92,6 +92,7 @@ struct ListeningPlaybackObservation {
 @MainActor
 final class ListeningStatisticsStore: ObservableObject {
     @Published private(set) var buckets: [ListeningStatisticsBucket] = []
+    @Published private(set) var readError: String?
 
     private static let storageKey = "com.colin0v0.auxmo.listeningStatistics.v1"
     // 新记录按采样片段保存真实时间并集；旧桶无法还原重叠关系，单独保留。
@@ -112,6 +113,7 @@ final class ListeningStatisticsStore: ObservableObject {
     private let defaults: UserDefaults
     private var lastSampleAt: Date?
     private var lastPersistAt: Date?
+    private var hasUnpersistedChanges = false
     private let bucketLength: TimeInterval = 15 * 60
     private let sampleInterval: TimeInterval = 15
 
@@ -123,26 +125,38 @@ final class ListeningStatisticsStore: ObservableObject {
             migrationDate = Date()
             defaults.set(migrationDate, forKey: Self.migrationKey)
         }
-        if let data = defaults.data(forKey: Self.intervalsKey) {
-            intervals = try! JSONDecoder().decode([Interval].self, from: data)
-        }
-        if let data = defaults.data(forKey: Self.storageKey) {
-            // 已存在的统计记录必须保持结构完整；损坏记录直接暴露，不能用空统计掩盖问题。
-            buckets = try! JSONDecoder().decode([ListeningStatisticsBucket].self, from: data)
-        }
-        if let data = defaults.data(forKey: Self.legacyKey) {
-            legacyBuckets = try! JSONDecoder().decode([ListeningStatisticsBucket].self, from: data)
-        } else {
-            legacyBuckets = buckets
-            defaults.set(try! JSONEncoder().encode(legacyBuckets), forKey: Self.legacyKey)
+        do {
+            if let data = defaults.data(forKey: Self.intervalsKey) {
+                intervals = try JSONDecoder().decode([Interval].self, from: data)
+            }
+            if let data = defaults.data(forKey: Self.storageKey) {
+                buckets = try JSONDecoder().decode([ListeningStatisticsBucket].self, from: data)
+            }
+            if let data = defaults.data(forKey: Self.legacyKey) {
+                legacyBuckets = try JSONDecoder().decode([ListeningStatisticsBucket].self, from: data)
+            } else {
+                legacyBuckets = buckets
+                defaults.set(try JSONEncoder().encode(legacyBuckets), forKey: Self.legacyKey)
+            }
+        } catch {
+            // 损坏记录不触发应用启动崩溃，同时标记只读错误并阻止后台写盘覆盖损坏现场。
+            readError = "统计记录格式损坏：\(error.localizedDescription)"
         }
     }
 
     /// 每次应用状态刷新都调用；每条观察携带该应用实际确认的输出。
     func record(at now: Date, observations: [ListeningPlaybackObservation]) {
+        guard readError == nil else { return }
         let active = observations.filter { $0.application.isRunningOutput && !$0.outputs.isEmpty }
-        // 没有可确认的播放时刻持续更新采样基点，恢复时不能把空闲时间算进去。
-        guard !active.isEmpty else { lastSampleAt = now; return }
+        // 没有可确认的播放时刻持续更新采样基点，并将停播前尚未落盘的片段立即写入磁盘。
+        guard !active.isEmpty else {
+            if hasUnpersistedChanges {
+                persist()
+                lastPersistAt = now
+            }
+            lastSampleAt = now
+            return
+        }
         guard let previous = lastSampleAt else { lastSampleAt = now; return }
         let elapsed = now.timeIntervalSince(previous)
         guard elapsed >= sampleInterval, elapsed < 120 else {
@@ -167,7 +181,8 @@ final class ListeningStatisticsStore: ObservableObject {
         }
         let bucketStart = Date(timeIntervalSince1970: floor(now.timeIntervalSince1970 / bucketLength) * bucketLength)
         for observation in active {
-            for output in observation.outputs {
+            var seenOutputs: Set<String> = []
+            for output in observation.outputs where seenOutputs.insert(output.uid).inserted {
                 let application = observation.application
                 let index = buckets.firstIndex {
                     $0.start == bucketStart && $0.deviceUID == output.uid && $0.applicationID == application.id
@@ -181,6 +196,7 @@ final class ListeningStatisticsStore: ObservableObject {
                 }
             }
         }
+        hasUnpersistedChanges = true
         if lastPersistAt.map({ now.timeIntervalSince($0) >= 60 }) != false {
             persist()
             lastPersistAt = now
@@ -197,16 +213,24 @@ final class ListeningStatisticsStore: ObservableObject {
     func deviceSummaries(since: Date? = nil, until: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [ListeningDeviceSummary] {
         let metadata = Dictionary(grouping: buckets, by: \.deviceUID)
         return metadata.compactMap { uid, rows in
-            let old = legacyDimensionSeconds(rows: legacyBuckets.filter { $0.deviceUID == uid && (scope == nil || scope!.matches($0)) }, since: since, until: until)
-            let recent = intervalSeconds(since: since, until: until) { interval in
-                guard interval.devices.contains(uid), matches(interval, scope: scope) else { return false }
-                if case .application(let app) = scope { return containsPair(interval, application: app, device: uid) }
+            let scopedLegacy = legacyBuckets.filter { $0.deviceUID == uid && (scope == nil || scope!.matches($0)) }
+            let old = legacyDimensionSeconds(rows: scopedLegacy, since: since, until: until)
+            let matchingInterval: (Interval) -> Bool = { interval in
+                guard interval.devices.contains(uid), self.matches(interval, scope: scope) else { return false }
+                if case .application(let app) = scope { return self.containsPair(interval, application: app, device: uid) }
                 return true
             }
+            let recent = intervalSeconds(since: since, until: until, matching: matchingInterval)
             let seconds = old + recent
-            guard seconds > 0, let first = rows.first,
-                  let last = rows.filter({ until == nil || $0.start < until! }).map(\.start).max() else { return nil }
-            return ListeningDeviceSummary(id: uid, name: first.deviceName, kind: first.deviceKind,
+            guard seconds > 0, let latestRow = rows.last else { return nil }
+            let scopedRows = rows.filter { (scope == nil || scope!.matches($0)) && (until == nil || $0.start < until!) }
+            let lastFromBuckets = scopedRows.map(\.start).max()
+            let lastFromIntervals = intervals
+                .filter { matchingInterval($0) && (since == nil || $0.end > since!) && (until == nil || $0.start < until!) }
+                .map { min($0.end, until ?? $0.end) }
+                .max()
+            guard let last = [lastFromBuckets, lastFromIntervals].compactMap({ $0 }).max() else { return nil }
+            return ListeningDeviceSummary(id: uid, name: latestRow.deviceName, kind: latestRow.deviceKind,
                                           seconds: seconds, lastUsed: last)
         }.sorted { $0.seconds > $1.seconds }
     }
@@ -214,16 +238,24 @@ final class ListeningStatisticsStore: ObservableObject {
     func applicationSummaries(since: Date? = nil, until: Date? = nil, scope: ListeningStatisticsScope? = nil) -> [ListeningApplicationSummary] {
         let metadata = Dictionary(grouping: buckets, by: \.applicationID)
         return metadata.compactMap { id, rows in
-            let old = legacyDimensionSeconds(rows: legacyBuckets.filter { $0.applicationID == id && (scope == nil || scope!.matches($0)) }, since: since, until: until)
-            let recent = intervalSeconds(since: since, until: until) { interval in
-                guard interval.applications.contains(id), matches(interval, scope: scope) else { return false }
-                if case .device(let uid) = scope { return containsPair(interval, application: id, device: uid) }
+            let scopedLegacy = legacyBuckets.filter { $0.applicationID == id && (scope == nil || scope!.matches($0)) }
+            let old = legacyDimensionSeconds(rows: scopedLegacy, since: since, until: until)
+            let matchingInterval: (Interval) -> Bool = { interval in
+                guard interval.applications.contains(id), self.matches(interval, scope: scope) else { return false }
+                if case .device(let uid) = scope { return self.containsPair(interval, application: id, device: uid) }
                 return true
             }
+            let recent = intervalSeconds(since: since, until: until, matching: matchingInterval)
             let seconds = old + recent
-            guard seconds > 0, let first = rows.first,
-                  let last = rows.filter({ until == nil || $0.start < until! }).map(\.start).max() else { return nil }
-            return ListeningApplicationSummary(id: id, name: first.applicationName, seconds: seconds, lastUsed: last)
+            guard seconds > 0, let latestRow = rows.last else { return nil }
+            let scopedRows = rows.filter { (scope == nil || scope!.matches($0)) && (until == nil || $0.start < until!) }
+            let lastFromBuckets = scopedRows.map(\.start).max()
+            let lastFromIntervals = intervals
+                .filter { matchingInterval($0) && (since == nil || $0.end > since!) && (until == nil || $0.start < until!) }
+                .map { min($0.end, until ?? $0.end) }
+                .max()
+            guard let last = [lastFromBuckets, lastFromIntervals].compactMap({ $0 }).max() else { return nil }
+            return ListeningApplicationSummary(id: id, name: latestRow.applicationName, seconds: seconds, lastUsed: last)
         }.sorted { $0.seconds > $1.seconds }
     }
 
@@ -354,16 +386,21 @@ final class ListeningStatisticsStore: ObservableObject {
         legacyBuckets.removeAll()
         lastSampleAt = nil
         lastPersistAt = nil
+        hasUnpersistedChanges = false
+        readError = nil
         defaults.removeObject(forKey: Self.storageKey)
         defaults.removeObject(forKey: Self.intervalsKey)
         defaults.set(emptyLegacy, forKey: Self.legacyKey)
     }
 
     func persist() {
+        guard readError == nil else { return }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try! encoder.encode(buckets)
-        defaults.set(data, forKey: Self.storageKey)
-        defaults.set(try! encoder.encode(intervals), forKey: Self.intervalsKey)
+        guard let bucketData = try? encoder.encode(buckets),
+              let intervalData = try? encoder.encode(intervals) else { return }
+        defaults.set(bucketData, forKey: Self.storageKey)
+        defaults.set(intervalData, forKey: Self.intervalsKey)
+        hasUnpersistedChanges = false
     }
 }

@@ -1,7 +1,7 @@
 import CoreAudio
 import Foundation
 
-public struct AudioProcessGroup: Identifiable, Equatable, Codable {
+public struct AudioProcessGroup: Identifiable, Equatable, Codable, Sendable {
     public let id: String
     public let bundleID: String
     public let processIDs: [Int32]

@@ -11,6 +11,8 @@ public protocol ApplicationAudioSession: AnyObject {
     var isActive: Bool { get }
     var isReleased: Bool { get }
     var isSuspendedForOutputChange: Bool { get }
+    /// 引擎化会话的捕获源与物理输出解耦，可以在设备切换期间保持捕获回调运行。
+    var supportsContinuousOutputSwitch: Bool { get }
     func setGain(_ value: Float) throws
     func setMuted(_ value: Bool)
     /// 只读计量会话没有重放增益可调；全局安全静音直接切换它的 tap 来源静音行为。

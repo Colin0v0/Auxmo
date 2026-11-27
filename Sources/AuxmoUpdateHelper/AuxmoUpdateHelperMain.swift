@@ -35,7 +35,8 @@ enum AuxmoUpdateHelperMain {
         #endif
         guard let plist = try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               plist["CFBundleIdentifier"] as? String == expectedBundleIdentifier,
-              plist["CFBundleShortVersionString"] as? String == options.version else {
+              let actualVersion = plist["CFBundleShortVersionString"] as? String,
+              versionsMatch(actualVersion, options.version) else {
             throw HelperError.invalidPayload
         }
         _ = try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
@@ -69,10 +70,28 @@ enum AuxmoUpdateHelperMain {
         guard plist["CFBundleIdentifier"] as? String == "com.colin0v0.auxmo.app" else {
             throw HelperError.invalidPayload
         }
-        guard plist["CFBundleShortVersionString"] as? String == options.version else {
+        guard let actualVersion = plist["CFBundleShortVersionString"] as? String,
+              versionsMatch(actualVersion, options.version) else {
             throw HelperError.versionMismatch
         }
         _ = try run("/usr/bin/codesign", ["--verify", "--deep", "--strict", "--verbose=2", payload.path])
+    }
+
+    private static func versionsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        func normalize(_ raw: String) -> String {
+            var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.lowercased().hasPrefix("v") { value.removeFirst() }
+            let parts = value.split(separator: "-", maxSplits: 1, omittingEmptySubsequences: false)
+            var numbers = (parts.first ?? "").split(separator: ".").compactMap { Int($0) }
+            while numbers.count > 1, numbers.last == 0 { numbers.removeLast() }
+            let core = numbers.map(String.init).joined(separator: ".")
+            guard !core.isEmpty else { return value }
+            if parts.count == 2, !parts[1].isEmpty {
+                return "\(core)-\(parts[1].lowercased())"
+            }
+            return core
+        }
+        return normalize(lhs) == normalize(rhs)
     }
 
     private static func waitForExit(pid: Int32) throws {
@@ -93,8 +112,8 @@ enum AuxmoUpdateHelperMain {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
-        process.waitUntilExit()
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard process.terminationStatus == 0 else {
@@ -145,7 +164,7 @@ private struct Options {
             }
             return arguments[index + 1]
         }
-        guard let pid = Int32(try value(after: "--pid")) else {
+        guard let pid = Int32(try value(after: "--pid")), pid > 0 else {
             throw HelperError.invalidArguments
         }
         self.pid = pid

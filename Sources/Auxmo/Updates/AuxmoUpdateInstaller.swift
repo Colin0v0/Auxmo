@@ -177,8 +177,9 @@ enum AuxmoUpdateInstaller {
         process.standardOutput = pipe
         process.standardError = pipe
         try process.run()
-        process.waitUntilExit()
+        // 先完整读取子进程输出再等待退出，避免输出超过系统管道容量（64KB）导致父子进程互相死锁。
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         let output = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard process.terminationStatus == 0 else {

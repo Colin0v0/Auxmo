@@ -64,6 +64,13 @@ final class AppModel: ObservableObject {
     @Published private(set) var outputRouting = OutputRoutingState() {
         didSet { recordRoutingChange(from: oldValue) }
     }
+    /// 引擎每次协调后产出的不可变音频拓扑计划与逐应用路由因果解释。
+    @Published private(set) var audioGraphPlan: AudioGraphPlan = .empty
+    var routeExplanations: [String: AudioRouteExplanation] { audioGraphPlan.explanations }
+    func routeExplanation(for applicationID: String) -> AudioRouteExplanation? {
+        audioGraphPlan.explanations[applicationID]
+    }
+    let audioEngine: AuxmoAudioEngine
     var multiOutputRoute: MultiOutputRoute? { outputRouting.confirmed?.aggregate }
     var multiOutputError: String? { outputRouting.error }
     var singleOutputTargetUID: String? {
@@ -131,6 +138,7 @@ final class AppModel: ObservableObject {
     private var shutdownRouteRequested = false
     /// 退出只做一次兜底扫描；取消退出后再次点击退出必须重新读取 HAL。
     private var shutdownSweepCompleted = false
+    private var isReconcilingBatch = false
 
     /// 权限撤销后仍必须允许关闭全局静音，不能把用户困在已开启状态。
     var canChangeGlobalSafetyMute: Bool {
@@ -149,11 +157,14 @@ final class AppModel: ObservableObject {
     /// 测试可注入只驻留内存的 HAL，并关闭系统监听，避免测试修改用户的音频设置。
     init(outputHardware: MultiOutputHardware, startsMonitoring: Bool = true,
          applicationAudio: ApplicationAudioEnvironment? = nil,
+         audioEngine: AuxmoAudioEngine? = nil,
          headphoneControllerFactory: (() -> HeadphoneController)? = nil,
          userIsSelectingOutput: (() -> Bool)? = nil,
          appAudioRouteStore: AppAudioRouteStore? = nil,
          appAudioEffectStore: AppAudioEffectStore? = nil,
          appAudioEffectsEnabled: Bool = false) {
+        let engine = audioEngine ?? AuxmoAudioEngine()
+        self.audioEngine = engine
         if let headphoneControllerFactory {
             self.headphones = HeadphoneControllerGroup(makeController: headphoneControllerFactory)
         } else { self.headphones = HeadphoneControllerGroup() }
@@ -165,7 +176,7 @@ final class AppModel: ObservableObject {
         let effectStore = appAudioEffectStore ?? AppAudioEffectStore()
         self.effects = ApplicationAudioEffectsLibrary(store: effectStore, enabled: appAudioEffectsEnabled)
         if let applicationAudio { self.applicationEnvironment = applicationAudio }
-        else if startsMonitoring { self.applicationEnvironment = .live }
+        else if startsMonitoring { self.applicationEnvironment = .live(engine: engine) }
         else { self.applicationEnvironment = nil }
         routing = OutputRoutingController(hardware: outputHardware)
         routing.localPlaybackOnConfirmedRoute = { [weak self] in
@@ -240,6 +251,7 @@ final class AppModel: ObservableObject {
             Task { @MainActor in
                 guard let self, !self.isShuttingDown, !self.isShutdown else { return }
                 self.diagnosticEventLog.record(category: "lifecycle", message: "system will sleep")
+                self.listeningStatistics.persist()
                 self.headphones.suspend()
                 self.pauseManagedApplicationsForSleep()
             }
@@ -344,6 +356,7 @@ final class AppModel: ObservableObject {
         guard let applicationEnvironment else { return }
         refreshAudioCaptureAccess()
         if shouldRefreshInputs { refreshInputs() }
+        var didReadApplications = false
         do {
             let retained = Set(mixStates.keys.filter { mixStates[$0]?.managed == true || sessions[$0] != nil })
             let observation = try applicationEnvironment.readApplications(retained)
@@ -351,47 +364,9 @@ final class AppModel: ObservableObject {
             let nextApplications = observation.rows
             if applications != nextApplications { applications = nextApplications }
             updateApplicationList(from: nextApplications)
-            // 每个应用分别依据已运行的重放会话确定输出，不再把所有应用与设备做笛卡尔积。
-            if let snapshot = audio, !outputRouting.phase.isBusy, outputRouting.phase != .failed,
-               let selected = snapshot.outputs.first(where: { $0.id == snapshot.selectedID }) {
-                let unavailable = Set(outputRouting.unavailableMemberUIDs)
-                let onlineUIDs = Set(snapshot.outputs.filter { !$0.isAggregate }.map(\.uid))
-                let defaultOutputs: [AudioOutput]
-                if let aggregate = outputRouting.confirmed?.aggregate, aggregate.uid == selected.uid {
-                    // 组合中离线或已经消失的成员不能继续记为播放设备。
-                    defaultOutputs = aggregate.outputs.filter { onlineUIDs.contains($0.uid) && !unavailable.contains($0.uid) }
-                } else if !selected.isAggregate {
-                    defaultOutputs = [selected]
-                } else {
-                    // 未确认的第三方聚合没有可信成员，不能猜设备归属。
-                    defaultOutputs = []
-                }
-                let activeOutputs = snapshot.outputs.filter { !$0.isAggregate && !unavailable.contains($0.uid) }
-                let observations = nextApplications.filter(\.isRunningOutput).map { app in
-                    let outputs: [AudioOutput]
-                    if let session = sessions[app.id], session.mode == .mixing {
-                        // 已暂停或尚未开始的自定义会话不能记作任何设备正在播放。
-                        if session.isActive && !session.isSuspendedForOutputChange {
-                            let actualUIDs = Set(session.playbackRoute.playbackDeviceUIDs)
-                            outputs = activeOutputs.filter { actualUIDs.contains($0.uid) }
-                        } else {
-                            outputs = []
-                        }
-                    } else {
-                        switch effectiveApplicationAudioRoute(for: app.id) {
-                        case .allOutputs: outputs = defaultOutputs
-                        case .custom, .waitingForDevices, .configurationUnavailable: outputs = []
-                        }
-                    }
-                    return ListeningPlaybackObservation(application: app, outputs: outputs)
-                }
-                listeningStatistics.record(at: routingNow, observations: observations)
-            } else {
-                // 未确认系统输出时结束本次采样，不能把等待时间算到下次恢复后的设备。
-                listeningStatistics.record(at: routingNow, observations: [])
-            }
             prepareLevelSources(for: playingApplications)
             if processError != nil { processError = nil }
+            didReadApplications = true
         } catch {
             // 枚举失败就报告失败并暂停；不换另一份进程来源，也不把读取失败伪装成零个进程。
             metering.clearAll()
@@ -419,6 +394,35 @@ final class AppModel: ObservableObject {
         if mixStatesChanged { mixStates = nextMixStates }
         if processError == nil { recoverProcessReadFailures() }
         reconcileSessions()
+        if didReadApplications {
+            recordListeningStatisticsFromEngine()
+        }
+    }
+
+    private func recordListeningStatisticsFromEngine() {
+        guard let snapshot = audio, !outputRouting.phase.isBusy, outputRouting.phase != .failed,
+              snapshot.outputs.contains(where: { $0.id == snapshot.selectedID }) else {
+            // 未确认系统输出时结束本次采样，不能把等待时间算到下次恢复后的设备。
+            listeningStatistics.record(at: routingNow, observations: [])
+            return
+        }
+        let unavailable = Set(outputRouting.unavailableMemberUIDs)
+        let activeOutputs = snapshot.outputs.filter { !$0.isAggregate && !unavailable.contains($0.uid) }
+        let observations = applications.filter(\.isRunningOutput).map { app in
+            let outputs: [AudioOutput]
+            if let session = sessions[app.id], session.mode == .mixing {
+                if session.isActive && !session.isSuspendedForOutputChange {
+                    let actualUIDs = Set(session.playbackRoute.playbackDeviceUIDs)
+                    outputs = activeOutputs.filter { actualUIDs.contains($0.uid) }
+                } else {
+                    outputs = []
+                }
+            } else {
+                outputs = audioGraphPlan.activeOutputs(for: app.id, onlineOutputs: activeOutputs)
+            }
+            return ListeningPlaybackObservation(application: app, outputs: outputs)
+        }
+        listeningStatistics.record(at: routingNow, observations: observations)
     }
 
     /// 权限由独立提示控制器展示，不向每个应用锁存同一条错误。
@@ -461,6 +465,7 @@ final class AppModel: ObservableObject {
             }
             guard let observed = routing.latestSnapshot else { throw AudioFailure("无法读回当前路由快照") }
             if audio != observed { audio = observed }
+            audioEngine.updatePhysicalOutputs(observed.outputs)
             if audioError != nil { audioError = nil }
             if let confirmed = outputRouting.confirmed, !outputRouting.phase.isBusy {
                 // 路由请求可能在一次硬件读回内直接确认，不能让 APP 仍绑定旧输出后误判为外部变化。
@@ -477,7 +482,8 @@ final class AppModel: ObservableObject {
                 // 非用户主动停止时销毁 tap 会立即恢复 App 原声，比短暂无声更危险。
                 for key in Array(sessions.keys) where cleanupErrors[key] == nil {
                     if outputRouting.phase.isBusy,
-                       sessions[key]?.isSuspendedForOutputChange == true {
+                       (sessions[key]?.isSuspendedForOutputChange == true
+                        || sessions[key]?.supportsContinuousOutputSwitch == true) {
                         continue
                     }
                     _ = preserveMixingSession(key)
@@ -526,10 +532,12 @@ final class AppModel: ObservableObject {
             pendingApplicationReapplies.removeAll()
             updateRouteConfirmationActivity()
             if audio != nil { audio = nil }
+            audioEngine.updatePhysicalOutputs([])
             if audioError != error.localizedDescription { audioError = error.localizedDescription }
             headphoneControl = HeadphoneControlSelection()
             headphones.outputUnavailable()
             pauseManagedApplications("系统音频状态读取失败：\(error.localizedDescription)")
+            refreshAudioGraphPlan()
         }
     }
 
@@ -537,12 +545,14 @@ final class AppModel: ObservableObject {
     /// 资源释放失败沿用现有清理错误，不能静默掩盖。
     private func suspendUncertainAudioObservation() {
         if audio != nil { audio = nil }
+        audioEngine.updatePhysicalOutputs([])
         headphoneControl = HeadphoneControlSelection()
         if observesHeadphones { headphones.outputUnavailable() }
         // 快照暂时不可信只撤销旧路由的使用资格，不销毁正在静音的 tap。
         for key in Array(sessions.keys) where cleanupErrors[key] == nil {
             _ = preserveMixingSession(key)
         }
+        refreshAudioGraphPlan()
     }
 
     /// 只在等待 HAL 时短周期读取同一目标；不重复发出写请求，也不阻塞 UI 主线程。
@@ -748,6 +758,7 @@ final class AppModel: ObservableObject {
                 guard stop(key) else { throw AudioFailure("旧 APP 音频资源尚未释放，未切换输出") }
                 continue
             }
+            if session.supportsContinuousOutputSwitch { continue }
             do {
                 try session.suspendForOutputChange()
             } catch {
@@ -776,6 +787,12 @@ final class AppModel: ObservableObject {
     }
 
     private func reconcileSessions() {
+        isReconcilingBatch = true
+        defer {
+            isReconcilingBatch = false
+            _ = try? audioEngine.releaseIdleSinks()
+            refreshAudioGraphPlan()
+        }
         let visible = Set(applications.map(\.id))
         for key in Array(sessions.keys) where !visible.contains(key) && cleanupErrors[key] == nil { stop(key) }
         for key in Array(mixStates.keys) where !visible.contains(key) && (key.hasPrefix("pid:") || key.hasPrefix("unassigned:pid:")) {
@@ -784,8 +801,56 @@ final class AppModel: ObservableObject {
         for app in applications { reconcile(app) }
     }
 
+    func refreshAudioGraphPlan() {
+        var effectiveEffectsMap: [String: AppAudioEffectSettings] = [:]
+        for app in applications where !app.bundleID.isEmpty {
+            let storageKey = "bundle:\(app.bundleID)"
+            if let effect = effects.effective(for: storageKey) {
+                effectiveEffectsMap[storageKey] = effect
+            }
+        }
+        let configured = outputRouting.configured?.memberUIDs
+            ?? outputRouting.confirmed?.intent.memberUIDs
+            ?? []
+        let world = AudioEngineWorld(
+            excludedPID: audioEngine.excludedPID,
+            captureAccess: audioCaptureAccess,
+            routeConfigurationAvailable: applicationRouteConfigurationAvailable,
+            effectConfigurationAvailable: applicationEffectConfigurationAvailable,
+            effectsEnabled: applicationEffectsEnabled,
+            hasMixerConflict: isFineTuneRunning,
+            globalSafetyMute: globalSafetyMuteEnabled,
+            metersVisible: metersVisible,
+            routingPolicy: .authorizedGroupOnly,
+            audioSnapshot: audio,
+            confirmedRoute: outputRouting.confirmed,
+            multiOutputRoute: multiOutputRoute,
+            routingBusy: outputRouting.phase.isBusy,
+            routingFailed: outputRouting.phase == .failed,
+            configuredMemberUIDs: configured,
+            unavailableMemberUIDs: Set(outputRouting.unavailableMemberUIDs),
+            processReadError: processError,
+            applications: applications,
+            mixStates: mixStates,
+            storedRoutes: appAudioRoutes,
+            effectiveEffects: effectiveEffectsMap,
+            existingSessionModes: sessions.mapValues(\.mode),
+            cleanupErrorIDs: Set(cleanupErrors.keys)
+        )
+        let nextPlan = audioEngine.compilePlan(world)
+        if audioGraphPlan != nextPlan {
+            audioGraphPlan = nextPlan
+        }
+    }
+
     func reconcile(_ app: ApplicationAudioRow) {
         guard !isShutdown, !isShuttingDown else { return }
+        defer {
+            if !isReconcilingBatch {
+                _ = try? audioEngine.releaseIdleSinks()
+                refreshAudioGraphPlan()
+            }
+        }
         guard applicationRouteConfigurationAvailable else {
             // 未知配置不等于全部输出；已有 mixing tap 只暂停重放，不释放原声静音。
             if cleanupErrors[app.id] == nil { _ = preserveMixingSession(app.id) }
@@ -799,6 +864,7 @@ final class AppModel: ObservableObject {
             // 切换中、失败态或进程读取暂时不可信时，mixing 会话只能暂停重放，
             // 不能销毁 tap；否则用户正在静音或压低音量的 App 会立即恢复原声。
             if let session = sessions[app.id], session.mode == .mixing {
+                if outputRouting.phase.isBusy, session.supportsContinuousOutputSwitch { return }
                 _ = preserveMixingSession(app.id)
                 return
             }
@@ -1400,6 +1466,11 @@ final class AppModel: ObservableObject {
         guard stopAll() else {
             return .failed(cleanupErrors.keys.sorted().compactMap { cleanupErrors[$0] }.joined(separator: "；"))
         }
+        do {
+            try audioEngine.shutdown()
+        } catch {
+            return .failed(error.localizedDescription)
+        }
         if !shutdownSweepCompleted {
             shutdownSweepCompleted = true
             do {
@@ -1424,6 +1495,7 @@ final class AppModel: ObservableObject {
             if routing.retainedRoute != nil || !outputRouting.pendingCleanup.isEmpty { return .waiting }
         }
         routeConfirmationTimer?.invalidate(); routeConfirmationTimer = nil
+        listeningStatistics.persist()
         lifecycle = .stopped; headphones.shutdown()
         timer?.invalidate(); timer = nil
         safetyMute.stopRefresh()

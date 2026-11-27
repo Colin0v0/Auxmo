@@ -1525,6 +1525,7 @@ final class MemoryAudioSession: ApplicationAudioSession {
     var isActive = false
     var isReleased = true
     var isSuspendedForOutputChange = false
+    let supportsContinuousOutputSwitch = false
     var gain: Float = 1
     var muted = false
     var safetyMuted = false
