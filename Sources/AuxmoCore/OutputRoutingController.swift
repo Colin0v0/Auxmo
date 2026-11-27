@@ -124,7 +124,14 @@ public final class OutputRoutingController {
     private let resources: MultiOutputDevice
     private let confirmationTimeout: TimeInterval
     private var deadline: Date?
-    private enum Step { case departure(AudioOutput), releasing(AudioOutput), cleanup(AudioOutput), activation(AudioOutput) }
+    private enum Step {
+        case departure(AudioOutput)
+        case releasing(AudioOutput)
+        case cleanup(AudioOutput)
+        /// 启动时媒体和提示音都已是真实设备，只销毁上一进程遗留的 Auxmo 聚合。
+        case startupCleanup(AudioOutput)
+        case activation(AudioOutput)
+    }
     private var externalReleaseDeadline: Date?
     /// 外部媒体输出短暂换句柄时先等待同一目标恢复，不把一次蓝牙过渡锁成永久失败。
     private var externalAdoptionDeadline: Date?
@@ -279,12 +286,25 @@ public final class OutputRoutingController {
                     try activate(intent, at: now)
                     observe(try hardware.snapshot(), at: now)
                     return
+                case .startupCleanup:
+                    guard try resources.cleanupUnmanagedOutputs() else {
+                        if let deadline, now >= deadline { throw AudioFailure("系统未在期限内释放残留组合，请重试释放") }
+                        updateCleanup(snapshot)
+                        return
+                    }
+                    self.step = nil
+                    deadline = nil
+                    state.phase = .stable
+                    state.error = nil
+                    // 销毁会改变 HAL 枚举，必须用清理后的快照刷新界面和待清理列表。
+                    observe(try hardware.snapshot(), at: now)
+                    return
                 case .departure, .activation: break
                 }
                 let target: AudioOutput
                 switch step {
                 case .departure(let output), .activation(let output): target = output
-                case .releasing, .cleanup: return
+                case .releasing, .cleanup, .startupCleanup: return
                 }
                 guard snapshot.outputs.contains(where: { $0.id == target.id && $0.uid == target.uid }),
                       try hardware.isAlive(target.id) else { throw AudioFailure("等待确认的输出已断开") }
@@ -311,7 +331,7 @@ public final class OutputRoutingController {
                     deadline = now.addingTimeInterval(confirmationTimeout)
                     observe(snapshot, at: now)
                     return
-                case .releasing, .cleanup: return
+                case .releasing, .cleanup, .startupCleanup: return
                 case .activation:
                     if resources.route != nil { try resources.validate(snapshot: snapshot) }
                     guard let intent = state.desired else { throw AudioFailure("路由切换意图丢失") }
@@ -480,6 +500,22 @@ public final class OutputRoutingController {
                 }
                 // 启动时只观察既有媒体输出，不要求用户把系统提示音也改到同一台设备。
                 state.confirmed = ConfirmedOutputRoute(intent: .single(actual.uid), output: actual, aggregate: nil)
+                if !resources.unmanagedOutputs(in: snapshot).isEmpty {
+                    // 媒体和提示音都已经是真实设备时，只清理上一进程遗留的聚合，不改写任何真实默认输出。
+                    step = .startupCleanup(actual)
+                    deadline = now.addingTimeInterval(confirmationTimeout)
+                    state.phase = .awaitingHAL
+                    guard try resources.cleanupUnmanagedOutputs() else {
+                        updateCleanup(snapshot)
+                        return
+                    }
+                    step = nil
+                    deadline = nil
+                    state.phase = .stable
+                    state.error = nil
+                    observe(try hardware.snapshot(), at: now)
+                    return
+                }
             }
             updateCleanup(snapshot)
         } catch {

@@ -55,6 +55,8 @@ final class AppSettings: ObservableObject {
         static let appearance = "com.colin0v0.auxmo.settings.appearance"
         static let headphones = "com.colin0v0.auxmo.settings.showHeadphones"
         static let simultaneousOutput = "com.colin0v0.auxmo.settings.showSimultaneousOutput"
+        static let hiddenOutputs = "com.colin0v0.auxmo.settings.hiddenOutputs"
+        static let hiddenInputs = "com.colin0v0.auxmo.settings.hiddenInputs"
         static let appAudioEffects = "com.colin0v0.auxmo.settings.appAudioEffectsEnabled"
         static let menuBarBatterySource = "com.colin0v0.auxmo.settings.menuBarBatterySource"
         static let lowBatteryReminder = "com.colin0v0.auxmo.settings.lowBatteryReminder"
@@ -72,6 +74,13 @@ final class AppSettings: ObservableObject {
     }
     @Published var showHeadphoneControls: Bool? { didSet { persist(showHeadphoneControls, key: Key.headphones) } }
     @Published var showSimultaneousOutput: Bool? { didSet { persist(showSimultaneousOutput, key: Key.simultaneousOutput) } }
+    /// UID 对应最后一次看到的名称；设备离线后仍可识别并恢复。
+    @Published private(set) var hiddenOutputs: [String: String]? {
+        didSet { persist(hiddenOutputs, key: Key.hiddenOutputs) }
+    }
+    @Published private(set) var hiddenInputs: [String: String]? {
+        didSet { persist(hiddenInputs, key: Key.hiddenInputs) }
+    }
     @Published var appAudioEffectsEnabled: Bool? { didSet { persist(appAudioEffectsEnabled, key: Key.appAudioEffects) } }
     @Published var menuBarBatterySource: MenuBarBatterySource? { didSet { persist(menuBarBatterySource?.storageValue, key: Key.menuBarBatterySource) } }
     @Published var lowBatteryReminderEnabled: Bool? { didSet { persist(lowBatteryReminderEnabled, key: Key.lowBatteryReminder) } }
@@ -88,6 +97,16 @@ final class AppSettings: ObservableObject {
         }
         showHeadphoneControls = Self.read(defaults, key: Key.headphones, initial: false, errors: &errors, decode: Self.boolean)
         showSimultaneousOutput = Self.read(defaults, key: Key.simultaneousOutput, initial: false, errors: &errors, decode: Self.boolean)
+        hiddenOutputs = Self.read(defaults, key: Key.hiddenOutputs, initial: [:], errors: &errors) { raw in
+            guard let entries = raw as? [String: String],
+                  entries.allSatisfy({ !$0.key.isEmpty && !$0.value.isEmpty }) else { return nil }
+            return entries
+        }
+        hiddenInputs = Self.read(defaults, key: Key.hiddenInputs, initial: [:], errors: &errors) { raw in
+            guard let entries = raw as? [String: String],
+                  entries.allSatisfy({ !$0.key.isEmpty && !$0.value.isEmpty }) else { return nil }
+            return entries
+        }
         appAudioEffectsEnabled = Self.read(defaults, key: Key.appAudioEffects, initial: false, errors: &errors, decode: Self.boolean)
         lowBatteryReminderEnabled = Self.read(defaults, key: Key.lowBatteryReminder, initial: false, errors: &errors, decode: Self.boolean)
         showMenuBarDeviceIcon = Self.read(defaults, key: Key.menuBarDeviceIcon, initial: false, errors: &errors, decode: Self.boolean)
@@ -127,6 +146,29 @@ final class AppSettings: ObservableObject {
         readErrors.removeValue(forKey: key)
     }
 
+    /// 读取失败时不覆盖原始设置，隐藏与恢复入口保持不可用。
+    func hideOutput(uid: String, name: String) {
+        guard !uid.isEmpty, !name.isEmpty, var entries = hiddenOutputs else { return }
+        entries[uid] = name
+        hiddenOutputs = entries
+    }
+
+    func restoreOutput(uid: String) {
+        guard var entries = hiddenOutputs, entries.removeValue(forKey: uid) != nil else { return }
+        hiddenOutputs = entries
+    }
+
+    func hideInput(uid: String, name: String) {
+        guard !uid.isEmpty, !name.isEmpty, var entries = hiddenInputs else { return }
+        entries[uid] = name
+        hiddenInputs = entries
+    }
+
+    func restoreInput(uid: String) {
+        guard var entries = hiddenInputs, entries.removeValue(forKey: uid) != nil else { return }
+        hiddenInputs = entries
+    }
+
     var resolvedLanguage: AppLanguage {
         // 设置损坏时没有已选语言。这里只决定如何绘制错误界面，不把系统语言写成已恢复的配置。
         guard let language else { return AppLanguage.system.resolved() }
@@ -160,6 +202,17 @@ enum L10n {
     }
 
     private static let english: [String: String] = [
+        "隐藏设备": "Hide Device",
+        "已隐藏设备": "Hidden Devices",
+        "恢复": "Restore",
+        "已隐藏设备设置无法读取": "Hidden device settings could not be read",
+        "展开已隐藏设备": "Show hidden devices",
+        "收起已隐藏设备": "Hide device list",
+        "已隐藏": "Hidden",
+        "使用中的设备不能隐藏": "Devices in use cannot be hidden",
+        "无法确认当前输出设备：%@": "Could not confirm the current output device: %@",
+        "已隐藏麦克风": "Hidden Microphones",
+        "已隐藏麦克风设置无法读取": "Hidden microphone settings could not be read",
         "低电量提醒": "Low Battery Alert",
         "耳机电量降至 20% 时发送通知。": "Notify when headphone battery reaches 20%.",
         "耳机电量低": "Headphone Battery Low",
@@ -458,6 +511,7 @@ enum L10n {
         "低于负 60 dBFS": "Below -60 dBFS",
         "多设备输出": "Multi-Device Output",
         "多设备输出 · %d 台": "Multi-Device Output · %d Devices",
+        "%@ · %d 台": "%@ · %d",
         "多设备输出待释放": "Multi-Device Output Pending Release",
         "清理残留设备": "Clean Up Leftover Device",
         "关闭多设备输出提示": "Dismiss Multi-Device Output Message",

@@ -25,6 +25,25 @@ struct OutputDevicesLayoutTests {
         #expect(visible.map(\.uid) == [physical.uid])
     }
 
+    @Test func hiddenOutputsAreExcludedByUIDEvenWhenSelected() {
+        let first = Self.fixture.outputs[0]
+        let second = Self.fixture.outputs[1]
+        let visible = OutputDevicesSection.visibleOutputs([first, second], hiddenUID: nil,
+                                                           hiddenOutputUIDs: [first.uid])
+        #expect(visible.map(\.uid) == [second.uid])
+    }
+
+    @Test func activeOutputsCannotBeHiddenEvenIfPreviouslyArchived() {
+        let first = Self.fixture.outputs[0]
+        let second = Self.fixture.outputs[1]
+        let hidden: Set<String> = [first.uid, second.uid]
+        #expect(OutputDevicesSection.isInUse(output: first, selectedID: first.id, activeOutputUIDs: []))
+        #expect(OutputDevicesSection.isInUse(output: second, selectedID: first.id, activeOutputUIDs: [second.uid]))
+        let visible = OutputDevicesSection.visibleOutputs([first, second], hiddenUID: nil, hiddenOutputUIDs: hidden,
+                                                         activeOutputUIDs: [second.uid], selectedID: first.id)
+        #expect(Set(visible.map(\.uid)) == hidden)
+    }
+
     @Test func simultaneousMembersDoNotAppearAsTheSelectedDefaultOutput() {
         let headphones = Self.fixture.outputs[0]
         let speakers = Self.fixture.outputs[1]

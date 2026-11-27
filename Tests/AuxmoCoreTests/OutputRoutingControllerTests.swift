@@ -585,6 +585,27 @@ struct OutputRoutingControllerTests {
         #expect(controller.state.pendingCleanup.isEmpty)
     }
 
+    @Test func startupRemovesOrphanAggregateWithoutChangingSeparateRealDefaults() throws {
+        let fixture = RoutingTestHardware()
+        let plan = try MultiOutputPlan(outputs: Array(fixture.outputs.prefix(2)),
+                                       sampleRates: ["speaker": 48_000, "headphone": 48_000])
+        fixture.compositions[88] = plan.description(uid: "com.colin0v0.auxmo.multi.orphan")
+        fixture.selected = 2
+        fixture.systemSelected = 1
+        let controller = OutputRoutingController(hardware: fixture.hardware)
+
+        controller.observe(fixture.snapshot)
+
+        #expect(controller.state.phase == .stable)
+        #expect(controller.state.error == nil)
+        #expect(controller.state.confirmed?.output.uid == "headphone")
+        #expect(controller.state.actualSystemOutputID == 1)
+        #expect(fixture.selected == 2 && fixture.systemSelected == 1)
+        #expect(fixture.destroyed == [88])
+        #expect(fixture.selections.isEmpty)
+        #expect(controller.state.pendingCleanup.isEmpty)
+    }
+
     @Test func earRemovalAndSystemDefaultChangeDoNotAdoptTheUnavailableHeadphone() {
         let fixture = RoutingTestHardware()
         let controller = OutputRoutingController(hardware: fixture.hardware)
@@ -866,18 +887,22 @@ struct OutputRoutingControllerTests {
         #expect(fixture.selections.isEmpty)
     }
 
-    @Test func snapshotFailureRetainsDiscoveredButNotOwnedCleanupRecords() throws {
+    @Test func startupCleanupFailureRetainsResidueUntilExplicitRetry() throws {
         let fixture = RoutingTestHardware()
         let plan = try MultiOutputPlan(outputs: Array(fixture.outputs.prefix(2)),
                                        sampleRates: ["speaker": 48_000, "headphone": 48_000])
         fixture.compositions[88] = plan.description(uid: "com.colin0v0.auxmo.multi.previous")
+        fixture.failDestroy = true
         let controller = OutputRoutingController(hardware: fixture.hardware)
         controller.observe(fixture.snapshot)
+        #expect(controller.state.phase == .failed)
+        #expect(controller.state.error == "组合释放失败")
         #expect(controller.state.pendingCleanup.map(\.id) == [88])
         controller.observationFailed(AudioFailure("暂时无法读取快照"))
         #expect(controller.state.pendingCleanup.map(\.id) == [88])
         controller.dismissError()
         #expect(controller.state.phase == .failed)
+        fixture.failDestroy = false
         controller.observe(fixture.snapshot)
         controller.stop()
         #expect(controller.state.pendingCleanup.isEmpty)

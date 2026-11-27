@@ -129,6 +129,8 @@ final class AppModel: ObservableObject {
     var isShutdown: Bool { lifecycle == .stopped }
     var isShuttingDown: Bool { lifecycle == .stopping }
     private var shutdownRouteRequested = false
+    /// 退出只做一次兜底扫描；取消退出后再次点击退出必须重新读取 HAL。
+    private var shutdownSweepCompleted = false
 
     /// 权限撤销后仍必须允许关闭全局静音，不能把用户困在已开启状态。
     var canChangeGlobalSafetyMute: Bool {
@@ -1382,6 +1384,7 @@ final class AppModel: ObservableObject {
         guard !isShutdown else { return }
         lifecycle = .running
         shutdownRouteRequested = false
+        shutdownSweepCompleted = false
         diagnosticEventLog.record(category: "lifecycle", message: "shutdown cancelled")
         // 保留未释放的会话和真实错误，恢复只读观察，不自动清错或重建失败的处理链。
         refresh()
@@ -1396,6 +1399,15 @@ final class AppModel: ObservableObject {
         processReadRecoveries.removeAll()
         guard stopAll() else {
             return .failed(cleanupErrors.keys.sorted().compactMap { cleanupErrors[$0] }.joined(separator: "；"))
+        }
+        if !shutdownSweepCompleted {
+            shutdownSweepCompleted = true
+            do {
+                // 退出前重新枚举一次，清理尚未进入 pendingCleanup 的孤儿聚合。
+                routing.observe(try outputHardware.snapshot(), at: routingNow)
+            } catch {
+                return .failed(error.localizedDescription)
+            }
         }
         if routing.retainedRoute != nil || !outputRouting.pendingCleanup.isEmpty || outputRouting.phase.isBusy {
             if !shutdownRouteRequested, !outputRouting.phase.isBusy {

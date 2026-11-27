@@ -5,6 +5,7 @@ import AuxmoCore
 @MainActor
 final class OutputRoutingDisclosure: ObservableObject {
     @Published var isChoosing = false
+    @Published var hideError: String?
     func cancel() { isChoosing = false }
 }
 
@@ -46,7 +47,9 @@ struct OutputRoutingSection: View {
     // 预览和独立测试可以显式保留入口；真实运行值始终由 AppSettings 注入。
     var showSimultaneousOutput = true
     @StateObject private var selection = OutputRoutingDisclosure()
+    @ObservedObject private var settings = AppSettings.shared
     @Environment(\.appLanguage) private var language
+    @Environment(\.dashboardLayout) private var dashboardLayout
 
     private var unmanagedOutputs: [AudioOutput] {
         routing.pendingCleanup
@@ -61,6 +64,11 @@ struct OutputRoutingSection: View {
 
     private var selectedUIDs: Set<String> {
         routing.isSimultaneous ? Set(routing.selectedMemberUIDs) : []
+    }
+
+    /// 已确认的实际输出、提示音输出和多设备成员都不能隐藏。
+    private var activeOutputUIDs: Set<String> {
+        OutputHideSafety.activeUIDs(audio: audio, routing: routing)
     }
 
     /// 组合行使用所有成员共同可写的控制；成员能力不一致时明确禁用统一控制。
@@ -91,6 +99,10 @@ struct OutputRoutingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let hideError = selection.hideError {
+                PanelError(text: L10n.text(hideError, language: language))
+                    .padding(.horizontal, PanelMetrics.horizontalInset)
+            }
             if !unmanagedOutputs.isEmpty {
                 Text(selectedUnmanagedOutput
                      ? L10n.text("选择一台扬声器继续播放", language: language)
@@ -140,20 +152,25 @@ struct OutputRoutingSection: View {
                         .padding(.horizontal, PanelMetrics.horizontalInset)
                 }
             }
-            if selection.isChoosing {
-                // 展开仅显示模型确认的成员，不构造另一份播放草稿。
-                VStack(alignment: .leading, spacing: 0) {
-                    routingList
+            VStack(alignment: .leading, spacing: 0) {
+                routingList
+                if selection.isChoosing, let hidden = settings.hiddenOutputs {
+                    // 展开仅显示模型确认的成员，不构造另一份播放草稿。
                     SimultaneousOutputEditor(
                         outputs: audio.outputs + routing.configuredOutputs.filter { configured in
                             !audio.outputs.contains { $0.uid == configured.uid }
                         }, controls: audio.controls,
-                        selectedUIDs: selectedUIDs, toggleMember: toggleMember,
+                        selectedUIDs: selectedUIDs, hiddenOutputUIDs: Set(hidden.keys), toggleMember: toggleMember,
                         setVolume: setVolume, setMuted: setMuted
                     )
                 }
-            } else {
-                routingList
+                if let hidden = settings.hiddenOutputs {
+                    // 隐藏区放在完整的多设备输出块之后，避免插在组合入口和成员编辑器之间。
+                    let inactiveHidden = hidden.filter { !activeOutputUIDs.contains($0.key) }
+                    if dashboardLayout && !inactiveHidden.isEmpty {
+                        hiddenDevices(inactiveHidden)
+                    }
+                }
             }
         }
         .onChange(of: unmanagedOutputs.map(\.uid)) { _, uids in
@@ -169,11 +186,39 @@ struct OutputRoutingSection: View {
     /// 设备行与多设备输出行共享零间距列表，保证分隔线位置不额外下移。
     private var routingList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            OutputDevicesSection(audio: audio, select: selectDeviceFromPhysicalList,
-                                 setVolume: setVolume, setMuted: setMuted,
-                                 simultaneousUIDs: simultaneousUIDs,
-                                 selectionSuppressed: routing.isSimultaneous,
-                                 hiddenUID: route?.uid)
+            if let hidden = settings.hiddenOutputs {
+                OutputDevicesSection(audio: audio, select: selectDeviceFromPhysicalList,
+                                     setVolume: setVolume, setMuted: setMuted,
+                                     simultaneousUIDs: simultaneousUIDs,
+                                     selectionSuppressed: routing.isSimultaneous,
+                                     hiddenUID: route?.uid,
+                                     hiddenOutputUIDs: Set(hidden.keys),
+                                     activeOutputUIDs: activeOutputUIDs,
+                                     outputSwitchInProgress: routing.phase.isBusy,
+                                     hideOutput: { output in
+                                         // 菜单可能在系统切换输出前打开；操作时重新向 HAL 确认实际路由。
+                                         do {
+                                             guard try OutputHideSafety.canHide(output: output, audio: audio, routing: routing,
+                                                                                selectedRouteContains: SystemAudio.selectedRouteContains) else {
+                                                 selection.hideError = L10n.text("使用中的设备不能隐藏", language: language)
+                                                 return
+                                             }
+                                             selection.hideError = nil
+                                             settings.hideOutput(uid: output.uid, name: output.name)
+                                         } catch {
+                                             // 错误只做当前界面语言的一次格式化，避免动态拼出的中文在英文界面漏翻。
+                                             selection.hideError = L10n.format(
+                                                 "无法确认当前输出设备：%@",
+                                                 language: language,
+                                                 arguments: [error.localizedDescription]
+                                             )
+                                         }
+                                     })
+            } else {
+                // 隐藏配置不可读时不猜测哪些设备允许切换，显示明确错误。
+                PanelError(text: L10n.text("已隐藏设备设置无法读取", language: language))
+                    .padding(.horizontal, PanelMetrics.horizontalInset)
+            }
             if let route {
                 SimultaneousOutputRow(
                     title: L10n.format("多设备输出 · %d 台", language: language,
@@ -220,6 +265,18 @@ struct OutputRoutingSection: View {
         }
     }
 
+    /// 隐藏区只提供恢复操作，不暴露选择、音量或静音入口。
+    private func hiddenDevices(_ entries: [String: String]) -> some View {
+        HiddenDevicesDisclosure(
+            title: L10n.text("已隐藏设备", language: language),
+            entries: entries,
+            icon: "eye.slash",
+            itemIcon: "speaker.wave.2",
+            horizontalInset: dashboardLayout ? 0 : PanelMetrics.horizontalInset,
+            restore: settings.restoreOutput
+        )
+    }
+
     private func toggleEditor() {
         // 展示行为不调用停止、释放或选择输出；单成员模式折叠后仍保持蓝色并继续播放。
         selection.isChoosing.toggle()
@@ -234,11 +291,35 @@ struct OutputRoutingSection: View {
     }
 }
 
+/// 隐藏仅影响界面，但必须同时考虑系统真实路由与 Auxmo 已确认的成员。
+enum OutputHideSafety {
+    static func activeUIDs(audio: SystemAudioSnapshot, routing: OutputRoutingState) -> Set<String> {
+        var uids = Set(audio.outputs.filter {
+            $0.id == audio.selectedID || $0.id == routing.actualSystemOutputID
+        }.map(\.uid))
+        if let actual = routing.actualOutput { uids.insert(actual.uid) }
+        if let confirmed = routing.confirmed {
+            uids.insert(confirmed.output.uid)
+            if let aggregate = confirmed.aggregate { uids.formUnion(aggregate.outputs.map(\.uid)) }
+        }
+        if routing.isSimultaneous { uids.formUnion(routing.selectedMemberUIDs) }
+        return uids
+    }
+
+    static func canHide(output: AudioOutput, audio: SystemAudioSnapshot, routing: OutputRoutingState,
+                        selectedRouteContains: (String) throws -> Bool) throws -> Bool {
+        guard !routing.phase.isBusy, !activeUIDs(audio: audio, routing: routing).contains(output.uid) else { return false }
+        // HAL 查询失败必须向用户报错，不能把“未知”当作不在使用。
+        return try !selectedRouteContains(output.uid)
+    }
+}
+
 /// 向下展开的成员选择沿用当前勾选顺序，并允许只启用一台设备。
 struct SimultaneousOutputEditor: View {
     let outputs: [AudioOutput]
     let controls: [UInt32: AudioDeviceControlState]
     let selectedUIDs: Set<String>
+    var hiddenOutputUIDs: Set<String> = []
     let toggleMember: (String) -> Void
     let setVolume: (Float, AudioOutput) -> Void
     let setMuted: (Bool, AudioOutput) -> Void
@@ -246,7 +327,8 @@ struct SimultaneousOutputEditor: View {
 
     var body: some View {
         VStack(spacing: 1) {
-            ForEach(Self.visibleOutputs(outputs: outputs, controls: controls, selectedUIDs: selectedUIDs)) { output in
+            ForEach(Self.visibleOutputs(outputs: outputs, controls: controls, selectedUIDs: selectedUIDs,
+                                        hiddenOutputUIDs: hiddenOutputUIDs)) { output in
                 SimultaneousOutputDeviceRow(
                     output: output,
                     control: controls[output.id],
@@ -272,9 +354,11 @@ struct SimultaneousOutputEditor: View {
     /// 多设备输出列表只提供可调音量的真实硬件；已选中的旧成员仍保留，以便用户明确移除。
     static func visibleOutputs(outputs: [AudioOutput],
                                controls: [UInt32: AudioDeviceControlState],
-                               selectedUIDs: Set<String>) -> [AudioOutput] {
+                               selectedUIDs: Set<String>,
+                               hiddenOutputUIDs: Set<String> = []) -> [AudioOutput] {
         outputs.filter { output in
-            guard output.supportsSimultaneousOutput else { return false }
+            // 已隐藏成员即使在现有组合中也不可重新切换；恢复后才显示。
+            guard !hiddenOutputUIDs.contains(output.uid), output.supportsSimultaneousOutput else { return false }
             if selectedUIDs.contains(output.uid) { return true }
             guard case .available(let volume, _) = controls[output.id] else { return false }
             return volume.scalar != nil && volume.writable
@@ -410,6 +494,8 @@ struct SimultaneousOutputRow: View {
     let setVolume: (Float) -> Void
     let setMuted: (Bool) -> Void
     @Environment(\.appLanguage) private var language
+    @Environment(\.dashboardLayout) private var dashboardLayout
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @StateObject private var hover = PanelRowHoverState()
 
     var body: some View {
@@ -446,7 +532,7 @@ struct SimultaneousOutputRow: View {
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                 }
-                .padding(.horizontal, PanelMetrics.horizontalInset)
+                .padding(.horizontal, dashboardLayout ? 0 : PanelMetrics.horizontalInset)
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 // 未启用时整行就是设置入口，不再额外放一个“设置”文字。
@@ -455,7 +541,7 @@ struct SimultaneousOutputRow: View {
                         identity
                         Spacer()
                     }
-                    .padding(.horizontal, PanelMetrics.horizontalInset)
+                    .padding(.horizontal, dashboardLayout ? 0 : PanelMetrics.horizontalInset)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
@@ -475,9 +561,12 @@ struct SimultaneousOutputRow: View {
         HStack(spacing: 8) {
             AudioDeviceIcon(symbol: "rectangle.on.rectangle", selected: selected, highlighted: hover.active)
             Text(title).lineLimit(1).foregroundStyle(PanelStyle.ink)
-            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+            Image(systemName: "chevron.right")
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(hover.active ? PanelStyle.ink : PanelStyle.secondary)
+                .rotationEffect(.degrees(expanded ? 90 : 0))
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.18), value: expanded)
+                .frame(width: 12, height: 12)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

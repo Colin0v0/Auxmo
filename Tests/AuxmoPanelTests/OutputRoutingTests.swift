@@ -51,6 +51,45 @@ struct OutputRoutingTests {
         #expect(microphone.fittingSize.height == 80)
     }
 
+    @Test func hidingOutputRechecksLiveRouteAndRetainsFailures() throws {
+        let audio = OutputDevicesLayoutTests.fixture
+        let target = audio.outputs[1]
+        var state = OutputRoutingState()
+        state.actualOutput = audio.outputs[0]
+        state.actualSystemOutputID = audio.outputs[0].id
+        // 即使旧快照显示未选中，系统路由已切换到该设备时也不能隐藏。
+        #expect(try !OutputHideSafety.canHide(output: target, audio: audio, routing: state,
+                                              selectedRouteContains: { $0 == target.uid }))
+        #expect(try OutputHideSafety.canHide(output: target, audio: audio, routing: state,
+                                             selectedRouteContains: { _ in false }))
+        #expect(throws: AudioFailure.self) {
+            try OutputHideSafety.canHide(output: target, audio: audio, routing: state,
+                                         selectedRouteContains: { _ in throw AudioFailure("读取失败") })
+        }
+        state.actualSystemOutputID = target.id
+        #expect(try !OutputHideSafety.canHide(output: target, audio: audio, routing: state,
+                                          selectedRouteContains: { _ in false }))
+        state.phase = .switching
+        #expect(try !OutputHideSafety.canHide(output: target, audio: audio, routing: state,
+                                          selectedRouteContains: { _ in false }))
+    }
+
+    @Test func confirmedMultiOutputMembersCannotBeHidden() throws {
+        let fixture = OutputDevicesLayoutTests.fixture
+        let members = Array(fixture.outputs.prefix(2))
+        let route = MultiOutputRoute(deviceID: 99, uid: "multi", outputs: members,
+                                     mainOutputUID: members[0].uid, previousOutputUID: members[0].uid,
+                                     sampleRate: 48_000)
+        let aggregate = AudioOutput(id: 99, uid: "multi", name: "Multi", transport: kAudioDeviceTransportTypeAggregate)
+        let audio = SystemAudioSnapshot(outputs: fixture.outputs + [aggregate], selectedID: 99, controls: fixture.controls)
+        let state = routingFixture(snapshot: audio, route: route)
+        #expect(Set(members.map(\.uid)).isSubset(of: OutputHideSafety.activeUIDs(audio: audio, routing: state)))
+        for member in members {
+            #expect(try !OutputHideSafety.canHide(output: member, audio: audio, routing: state,
+                                              selectedRouteContains: { _ in false }))
+        }
+    }
+
     @Test func routingEntryRendersWithoutWritingAudioSettings() throws {
         var starts = 0
         var stops = 0
@@ -133,6 +172,18 @@ struct OutputRoutingTests {
         #expect(host.frame.height <= 190)
         #expect(findButtons(host).count == fixture.outputs.count)
         try export(host, to: "/tmp/auxmo-multi-output-editor-new.png")
+    }
+
+    @Test func hiddenSelectedMemberCannotBeChosenUntilRestored() {
+        let audio = OutputDevicesLayoutTests.fixture
+        let output = audio.outputs[0]
+        let selected: Set<String> = [output.uid]
+        let hidden = SimultaneousOutputEditor.visibleOutputs(outputs: audio.outputs, controls: audio.controls,
+                                                             selectedUIDs: selected, hiddenOutputUIDs: selected)
+        #expect(!hidden.contains { $0.uid == output.uid })
+        let restored = SimultaneousOutputEditor.visibleOutputs(outputs: audio.outputs, controls: audio.controls,
+                                                               selectedUIDs: selected)
+        #expect(restored.contains { $0.uid == output.uid })
     }
 
     @Test func simultaneousChooserHidesHardwareWithoutWritableVolume() {
