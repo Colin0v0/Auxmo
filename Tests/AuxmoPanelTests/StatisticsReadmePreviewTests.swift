@@ -22,12 +22,10 @@ struct StatisticsReadmePreviewTests {
         calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
         let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 24, hour: 18)))
         let data: [(Int, Int, String, String, String, String, ListeningDeviceKind, Double)] = [
-            (-21, 9, "headphones", "AirPods Pro", "bundle:com.apple.Music", "Music", .headphones, 2400),
-            (-17, 20, "headphones", "AirPods Pro", "bundle:com.apple.Music", "Music", .headphones, 3600),
-            (-12, 10, "speakers", code == "en" ? "MacBook Speakers" : "MacBook 扬声器", "bundle:com.apple.Safari", "Safari", .builtInSpeaker, 1800),
-            (-8, 19, "headphones", "AirPods Pro", "bundle:com.apple.Music", "Music", .headphones, 2700),
-            (-4, 9, "speakers", code == "en" ? "MacBook Speakers" : "MacBook 扬声器", "bundle:com.apple.Safari", "Safari", .builtInSpeaker, 1500),
-            (-1, 21, "headphones", "AirPods Pro", "bundle:com.apple.Music", "Music", .headphones, 3000)
+            (-1, 9, "headphones", "AirPods Pro", "bundle:com.apple.Music", "Music", .headphones, 2400),
+            (-1, 20, "headphones", "AirPods Pro", "bundle:com.apple.Music", "Music", .headphones, 3600),
+            (0, 10, "speakers", code == "en" ? "MacBook Speakers" : "MacBook 扬声器", "bundle:com.apple.Safari", "Safari", .builtInSpeaker, 1800),
+            (0, 15, "headphones", "AirPods Pro", "bundle:com.apple.Music", "Music", .headphones, 2700)
         ]
         let buckets = try data.flatMap { day, hour, uid, device, appID, app, kind, seconds -> [ListeningStatisticsBucket] in
             let dayStart = try #require(calendar.date(byAdding: .day, value: day, to: calendar.startOfDay(for: now)))

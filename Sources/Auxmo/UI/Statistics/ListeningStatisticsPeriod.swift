@@ -13,16 +13,15 @@ struct ListeningDailyAverages {
 
 /// 快捷范围按用户本地日历计算；一周固定从周一开始，与统计热力图一致。
 enum ListeningStatisticsPeriod: CaseIterable, Identifiable {
-    case today, yesterday, week, lastWeek, month, year, custom
+    case week, lastWeek, month, lastMonth, year, custom
 
     var id: Self { self }
     var title: String {
         switch self {
-        case .today: return "今天"
-        case .yesterday: return "昨天"
         case .week: return "本周"
         case .lastWeek: return "上周"
         case .month: return "本月"
+        case .lastMonth: return "上月"
         case .year: return "今年"
         case .custom: return "自定义"
         }
@@ -30,11 +29,10 @@ enum ListeningStatisticsPeriod: CaseIterable, Identifiable {
 
     var englishTitle: String {
         switch self {
-        case .today: return "Today"
-        case .yesterday: return "Yesterday"
         case .week: return "This Week"
         case .lastWeek: return "Last Week"
         case .month: return "This Month"
+        case .lastMonth: return "Last Month"
         case .year: return "This Year"
         case .custom: return "Custom"
         }
@@ -45,26 +43,32 @@ enum ListeningStatisticsPeriod: CaseIterable, Identifiable {
         let start: Date
         let end: Date
         switch self {
-        case .today:
-            start = today; end = today
-        case .yesterday:
-            start = calendar.date(byAdding: .day, value: -1, to: today)!; end = start
-        case .week, .lastWeek:
+        case .week:
             let mondayOffset = (calendar.component(.weekday, from: today) + 5) % 7
             let thisMonday = calendar.date(byAdding: .day, value: -mondayOffset, to: today)!
-            if self == .week {
-                start = thisMonday; end = today
-            } else {
-                start = calendar.date(byAdding: .day, value: -7, to: thisMonday)!
-                end = calendar.date(byAdding: .day, value: -1, to: thisMonday)!
-            }
+            start = thisMonday
+            // 本周按完整自然周展示，未来日期保留为零值柱，保证七天刻度始终完整。
+            end = calendar.date(byAdding: .day, value: 6, to: thisMonday)!
+        case .lastWeek:
+            let mondayOffset = (calendar.component(.weekday, from: today) + 5) % 7
+            let thisMonday = calendar.date(byAdding: .day, value: -mondayOffset, to: today)!
+            start = calendar.date(byAdding: .day, value: -7, to: thisMonday)!
+            end = calendar.date(byAdding: .day, value: -1, to: thisMonday)!
         case .month:
             start = calendar.dateInterval(of: .month, for: today)!.start; end = today
+        case .lastMonth:
+            // 上月范围从原月第一天到本月第一天前一日，按本地日历跨月计算。
+            let thisMonthStart = calendar.dateInterval(of: .month, for: today)!.start
+            start = calendar.date(byAdding: .month, value: -1, to: thisMonthStart)!
+            end = calendar.date(byAdding: .day, value: -1, to: thisMonthStart)!
         case .year:
             start = calendar.dateInterval(of: .year, for: today)!.start; end = today
         case .custom:
             guard let customRange else { preconditionFailure("自定义日期范围尚未设置") }
             start = customRange.lowerBound; end = customRange.upperBound
+        }
+        if self == .week {
+            return (0...6).map { calendar.date(byAdding: .day, value: $0, to: start)! }
         }
         return ListeningDateRange(start: start, end: end, now: date, calendar: calendar).days(calendar: calendar)
     }
