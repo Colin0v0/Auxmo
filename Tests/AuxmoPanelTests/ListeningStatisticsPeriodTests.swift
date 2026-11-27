@@ -17,7 +17,7 @@ struct ListeningStatisticsPeriodTests {
     @Test func statisticsNavigationAndRangesHaveEnglishLabels() {
         #expect(L10n.text("观测", language: .english) == "Insights")
         #expect(L10n.text("统计", language: .english) == "Statistics")
-        #expect(ListeningStatisticsPeriod.allCases.map(\.englishTitle) == ["Today", "7d", "30d", "90d", "180d", "1y", "All", "Custom"])
+        #expect(ListeningStatisticsPeriod.allCases.map(\.englishTitle) == ["Today", "Yesterday", "This Week", "Last Week", "This Month", "This Year", "Custom"])
     }
 
     @Test @MainActor func changingRangeClearsSelectionAndExpandedRankings() {
@@ -34,31 +34,21 @@ struct ListeningStatisticsPeriodTests {
         #expect(!presentation.allApplications)
     }
 
-    @Test(arguments: ListeningStatisticsPeriod.allCases.filter { $0 != .all && $0 != .custom })
-    func rangeIncludesExactlyTheSelectedNumberOfLocalDates(period: ListeningStatisticsPeriod) throws {
+    @Test func shortcutsUseCalendarBoundaries() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
-        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 16)))
-        let days = period.days(endingAt: now, calendar: calendar)
-
-        #expect(days.count == period.rawValue)
-        #expect(Set(days).count == period.rawValue)
-        #expect(days.last == calendar.startOfDay(for: now))
-        #expect(days.allSatisfy { calendar.component(.hour, from: $0) == 0 })
-        #expect(days.first == calendar.date(byAdding: .day, value: 1 - period.rawValue,
-                                           to: calendar.startOfDay(for: now)))
-    }
-
-    @Test func allRangeStartsAtEarliestRecordOrToday() throws {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
-        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 12)))
-        let first = try #require(calendar.date(from: DateComponents(year: 2025, month: 12, day: 1, hour: 9)))
-        let days = ListeningStatisticsPeriod.all.days(endingAt: now, calendar: calendar, firstRecord: first)
-        #expect(days.first == calendar.startOfDay(for: first))
-        #expect(days.last == calendar.startOfDay(for: now))
-        #expect(ListeningStatisticsPeriod.all.days(endingAt: now, calendar: calendar).count == 1)
-        #expect(ListeningStatisticsPeriod.all.axisDates(for: days, calendar: calendar).count <= 7)
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 25, hour: 16)))
+        func day(_ month: Int, _ day: Int) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: month, day: day))!
+        }
+        #expect(ListeningStatisticsPeriod.today.days(endingAt: now, calendar: calendar) == [day(11, 25)])
+        #expect(ListeningStatisticsPeriod.yesterday.days(endingAt: now, calendar: calendar) == [day(11, 24)])
+        let week = ListeningStatisticsPeriod.week.days(endingAt: now, calendar: calendar)
+        #expect(week.first == (day(11, 23)) && week.last == (day(11, 25)))
+        let lastWeek = ListeningStatisticsPeriod.lastWeek.days(endingAt: now, calendar: calendar)
+        #expect(lastWeek.count == 7 && lastWeek.first == (day(11, 16)) && lastWeek.last == (day(11, 22)))
+        #expect(ListeningStatisticsPeriod.month.days(endingAt: now, calendar: calendar).first == (day(11, 1)))
+        #expect(ListeningStatisticsPeriod.year.days(endingAt: now, calendar: calendar).first == (day(1, 1)))
     }
 
     @Test func customRangeIncludesBothCalendarEndpoints() throws {
@@ -79,7 +69,8 @@ struct ListeningStatisticsPeriodTests {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
         let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 12)))
-        let days = ListeningStatisticsPeriod.week.days(endingAt: now, calendar: calendar)
+        let first = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 4)))
+        let days = ListeningStatisticsPeriod.custom.days(endingAt: now, calendar: calendar, customRange: first...now)
 
         #expect(days.map { calendar.component(.day, from: $0) } == [4, 5, 6, 7, 8, 9, 10])
         // 按日历加一天，夏令时开始的这一天只有 23 小时，不能以固定 86400 秒递增。
@@ -95,7 +86,7 @@ struct ListeningStatisticsPeriodTests {
     @Test @MainActor func totalsAndChartShareTheInclusiveFirstDayBoundary() throws {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
-        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 16)))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 11, day: 25, hour: 16)))
         let days = ListeningStatisticsPeriod.week.days(endingAt: now, calendar: calendar)
         let domain = "auxmo.statistics.period-test.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: domain))
