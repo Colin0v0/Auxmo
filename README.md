@@ -18,9 +18,9 @@
   <a href="docs/CHANGELOG.md">What's changed</a>
 </p>
 <p align="center">
-  <a href="docs/images/hero-en.png"><img src="docs/images/hero-en.png?v=0.4.10" width="440" alt="Auxmo output panel with speaker and headphone controls, independent Chrome and Music volumes, and per-app route buttons" /></a>
+  <a href="docs/images/hero-en.png"><img src="docs/images/hero-en.png?v=0.4.11" width="440" alt="Auxmo output panel with speaker and headphone controls, independent Chrome and Music volumes, and per-app route buttons" /></a>
 </p>
-<p align="center"><sub>UI previews use sample devices and apps rendered by Auxmo 0.4.10, not a live audio session. <a href="docs/images/README.md">Image sources</a>.</sub></p>
+<p align="center"><sub>UI previews use sample devices and apps rendered by Auxmo 0.4.11, not a live audio session. <a href="docs/images/README.md">Image sources</a>.</sub></p>
 
 > Free and open source. No account required. Current downloads are ad-hoc signed and **not notarized by Apple**; macOS may block launch. [Distribution details](docs/TRUST_AND_TESTING.md#distribution-and-permissions).
 
@@ -39,24 +39,24 @@ Use **Mute All** at the top-right of the main panel to temporarily mute app audi
 <td width="50%" valign="top">
 <h3>Mix apps independently</h3>
 <p>Give Chrome and Music different volumes, mute either app, and see live levels while the panel is open.</p>
-<a href="docs/images/mixer-en.png"><img src="docs/images/mixer-en.png?v=0.4.10" width="440" alt="Separate Chrome and Music volume sliders with effects and routing buttons" /></a>
+<a href="docs/images/mixer-en.png"><img src="docs/images/mixer-en.png?v=0.4.11" width="440" alt="Separate Chrome and Music volume sliders with effects and routing buttons" /></a>
 </td>
 <td width="50%" valign="top">
 <h3>Choose more than one output</h3>
 <p>Build a speaker-and-headphone group, keep individual device controls, and choose a different subset for each app.</p>
-<a href="docs/images/outputs-en.png"><img src="docs/images/outputs-en.png?v=0.4.10" width="440" alt="Multi-device output editor with speakers and AirPods Pro selected" /></a>
+<a href="docs/images/outputs-en.png"><img src="docs/images/outputs-en.png?v=0.4.11" width="440" alt="Multi-device output editor with speakers and AirPods Pro selected" /></a>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <h3>Shape each app's sound</h3>
 <p>A 10-band EQ, spatial effects, volume leveling, and channel controls. Save presets and compare with the original.</p>
-<a href="docs/images/effects-en.png"><img src="docs/images/effects-en.png?v=0.4.10" width="440" alt="Music effects window showing the ten-band equalizer, response preview, and Compare Original control" /></a>
+<a href="docs/images/effects-en.png"><img src="docs/images/effects-en.png?v=0.4.11" width="440" alt="Music effects window showing the ten-band equalizer, response preview, and Compare Original control" /></a>
 </td>
 <td width="50%" valign="top">
 <h3>Keep headphone controls nearby</h3>
 <p>Check battery levels and change the listening modes your exact model exposes. Controls vary by device and firmware.</p>
-<a href="docs/images/headphones-en.png"><img src="docs/images/headphones-en.png?v=0.4.10" width="440" alt="Example headphone battery readings with noise cancellation, transparency, and adaptive controls" /></a>
+<a href="docs/images/headphones-en.png"><img src="docs/images/headphones-en.png?v=0.4.11" width="440" alt="Example headphone battery readings with noise cancellation, transparency, and adaptive controls" /></a>
 </td>
 </tr>
 </table>
@@ -66,9 +66,9 @@ Use **Mute All** at the top-right of the main panel to temporarily mute app audi
 Open the detail window from the menu bar and choose **Insights → Statistics** to see listening totals, daily trends, device and app rankings, listening hours, and session details. Choose this week, last week, this month, last month, this year, or a custom range; select a device or app to see its own details and related rankings.
 
 <p align="center">
-  <a href="docs/images/statistics-en.png"><img src="docs/images/statistics-en.png?v=0.4.10" width="820" alt="Auxmo listening statistics preview with time range, listening totals, daily chart, output devices, app rankings, and listening-hours heatmap" /></a>
+  <a href="docs/images/statistics-en.png"><img src="docs/images/statistics-en.png?v=0.4.11" width="820" alt="Auxmo listening statistics preview with time range, listening totals, daily chart, output devices, app rankings, and listening-hours heatmap" /></a>
 </p>
-<p align="center"><sub>Statistics preview rendered from version 0.4.10 with sample data, not a real user's records. <a href="docs/images/README.md">Image sources</a>.</sub></p>
+<p align="center"><sub>Statistics preview rendered from version 0.4.11 with sample data, not a real user's records. <a href="docs/images/README.md">Image sources</a>.</sub></p>
 
 Statistics record audio activity observed while Auxmo runs on the Mac and are stored locally. They are not complete screen-time data and do not read iPhone Health data. App-to-device associations use confirmed output routes; historical records, sampling intervals, and session boundaries remain estimates. In **Settings → Statistics Data**, you can see the first recorded date, export JSON, or clear the records after confirmation.
 
